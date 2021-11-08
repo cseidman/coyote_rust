@@ -1,9 +1,11 @@
 use crate::chunk::{Chunk, OpCode};
-use crate::vm::InterpretResult::INTERPRET_OK;
+use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR};
 use crate::value::{printValue, Value} ;
 use crate::debug::* ;
+use crate::compiler::{Compiler};
 
 use OpCode::* ;
+use std::borrow::Borrow;
 
 pub enum InterpretResult {
     INTERPRET_OK,
@@ -11,18 +13,18 @@ pub enum InterpretResult {
     INTERPRET_RUNTIME_ERROR
 }
 
-pub struct VM <'a>{
-    chunk: Option<&'a Chunk>,
+pub struct VM {
+    chunk: Chunk, //Option<&'a mut Chunk>,
     ip: usize,
     stack: [Value;8000],
     stackTop: usize
 }
 
-impl<'a> VM<'a> {
+impl VM {
 
     pub fn new() -> Self {
         VM {
-            chunk: None,
+            chunk: Chunk::new(),
             ip: 0,
             stack:[0.0;8000],
             stackTop: 0
@@ -43,12 +45,18 @@ impl<'a> VM<'a> {
         self.stackTop = 0 ;
     }
 
-    pub fn interpret(&mut self, chunk: &'a Chunk) -> InterpretResult {
+    pub fn interpret(&mut self, source: String) -> InterpretResult {
 
-        self.chunk = Some(chunk) ;
-        return self.run() ;
+        let mut compiler = Compiler::new(source, &mut self.chunk) ;
 
+        let res = compiler.compile();
+        if !res {
+            return INTERPRET_COMPILE_ERROR ;
+        }
 
+       // self.chunk = Some(&chunk) ;
+
+        self.run()
     }
 
     pub fn debug(&self) {
@@ -61,19 +69,17 @@ impl<'a> VM<'a> {
             }
             println!();
         }
-        disassembleInstruction(self.chunk.unwrap(), self.ip) ;
+        disassembleInstruction(&self.chunk, self.ip) ;
     }
 
 
     pub fn run(&mut self) -> InterpretResult {
 
-        let chunk = self.chunk.unwrap() ;
-
         macro_rules! READ_BYTE {
             () => {
                 {
                     self.ip+=1 ;
-                    chunk.code[self.ip-1]
+                    self.chunk.code[self.ip-1]
                 }
             };
         }
@@ -99,7 +105,7 @@ impl<'a> VM<'a> {
                 },
                 OP_CONSTANT => {
                     let constIndex = READ_BYTE!() as usize;
-                    let constant = chunk.constants.values[constIndex] ;
+                    let constant = self.chunk.constants.values[constIndex] ;
                     self.push(constant) ;
                 },
                 OP_ADD => { BINOP!(+)},
