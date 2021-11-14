@@ -10,7 +10,7 @@ fn simpleInstruction(name: &str, offset: usize) -> usize {
 fn constantInstruction(name: &str, chunk: &Chunk, offset: usize) -> usize {
     let constant = chunk.code[offset+1] ;
     print!("{:16} {} '", name, constant);
-    printValue(chunk.constants.values[constant as usize]) ;
+    printValue(&chunk.constants.values[constant as usize]) ;
     println!("'") ;
     offset + 2
 }

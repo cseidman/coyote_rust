@@ -25,6 +25,7 @@ use std::fmt::Error;
 use std::borrow::{BorrowMut, Borrow};
 use clap::{Arg, App};
 
+
 fn main() -> ! {
 
     let app = App::new("Coyote")

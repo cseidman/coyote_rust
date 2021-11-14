@@ -1,3 +1,5 @@
+#[macro_use]
+
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::chunk::{Chunk, writeChunk, OpCode, addConstant};
 use crate::value::{Value} ;
@@ -25,13 +27,14 @@ enum expFunctions {
     BINARY,
     UNARY,
     NUMBER,
-    GROUPING
+    GROUPING,
+    LITERAL
 }
 
 use expFunctions::* ;
 use crate::debug::{disassembleInstruction, disassembleChunk};
 
-pub struct Compiler <'a> {
+pub struct Compiler<'a>  {
     chunk: &'a mut Chunk,
     scanner: Scanner ,
     parser: Parser
@@ -55,19 +58,27 @@ impl Parser {
         }
     }
 
+    pub fn getToken(&mut self, pointer: usize) -> Token {
+        // Nobody likes 'clone', but in this case, the reward/effort
+        // ratio of using RC or tuning lifetimes in a way to allow
+        // the Token struct to implement 'Copy' was too low. This only
+        // happens during the compilation phase so the impact should be minimal
+        self.tokens[pointer].clone()
+    }
+
     pub fn advance(&mut self, token: Token) {
         self.tokens.push(token) ;
         self.token_ptr+=1 ;
     }
 
-    pub fn current(&self) -> Token {
+    pub fn current(&mut self) -> Token {
         let ptr = self.token_ptr ;
-        self.tokens[ptr].clone()
+        self.getToken(ptr)
     }
 
-    pub fn previous(&self) -> Token {
+    pub fn previous(&mut self) -> Token  {
         let ptr = self.token_ptr-1 ;
-        self.tokens[ptr].clone()
+        self.getToken(ptr)
     }
 }
 
@@ -88,7 +99,8 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn error(&mut self, message: &str) {
-        self.errorAt(self.parser.previous(), message);
+        let token = self.parser.previous() ;
+        self.errorAt(token, message);
     }
 
     pub fn errorAt(&mut self, token: Token, message: &str) {
@@ -111,7 +123,8 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn errorAtCurrent(&mut self, message: &str) {
-        self.errorAt(self.parser.current(), message);
+        let token = self.parser.current() ;
+        self.errorAt(token, message);
     }
 
     pub fn consume(&mut self, token_type: TokenType, message: &str) {
@@ -157,7 +170,8 @@ impl<'a> Compiler<'a> {
     }
 
     fn emitConstant(&mut self, value: Value) {
-        //self.emitBytes(OP_CONSTANT, self.makeConstant(value)) ;
+        let byte = self.makeConstant(value) as u8 ;
+        self.emitBytes(OP_CONSTANT, byte) ;
     }
 
     fn makeConstant(&mut self, value: Value) -> usize {
@@ -177,9 +191,17 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn literal(&mut self) {
+        match self.parser.previous().tokenType {
+            TOKEN_FALSE => self.emitOp(OP_FALSE),
+            TOKEN_TRUE => self.emitOp(OP_TRUE),
+            _ => self.emitOp(OP_NIL),
+        }
+    }
+
     fn number(&mut self) {
-        let value = i64::from_str(self.parser.previous().name.as_str()).unwrap() as Value ;
-        self.emitConstant(value) ;
+        let number = f64::from_str(self.parser.previous().name.as_str()).unwrap() ;
+        self.emitConstant(NUMBER_VAL!(number)) ;
     }
 
     fn grouping(&mut self) {
@@ -212,8 +234,6 @@ impl<'a> Compiler<'a> {
         }
     }
 
-
-
     fn getRule(&mut self, tokenType: TokenType) -> (expFunctions, expFunctions, u8) {
         match tokenType {
             TOKEN_LEFT_PAREN => (GROUPING, NONE, PREC_NONE),
@@ -222,6 +242,7 @@ impl<'a> Compiler<'a> {
             | TOKEN_SLASH
             | TOKEN_STAR     => (NONE, BINARY, PREC_TERM),
             TOKEN_NUMBER     => (NUMBER, NONE, PREC_NONE),
+            TOKEN_FALSE      => (LITERAL, NONE, PREC_NONE),
             _ => (NONE, NONE, PREC_NONE )
         }
     }
@@ -245,11 +266,14 @@ impl<'a> Compiler<'a> {
             return ;
         }
 
-        self.execExpression(prefixRule) ;
-
-        while precedence <= self.getRule(self.parser.current().tokenType).2 {
+        loop {
+            let current = self.parser.current() ;
+            if precedence > self.getRule(current.tokenType).2 {
+                break ;
+            }
             self.advance() ;
-            let infixRule = self.getRule(self.parser.previous().tokenType).1 ;
+            let current = self.parser.current() ;
+            let infixRule = self.getRule(current.tokenType).1 ;
             self.execExpression(infixRule) ;
         }
 

@@ -1,3 +1,5 @@
+use std::rc::{Rc};
+
 #[derive(PartialEq)]
 #[derive(Clone, Copy)]
 pub enum TokenType {
@@ -32,9 +34,8 @@ pub struct Token {
     pub tokenType: TokenType,
     pub line: usize,
     pub name: String,
-    pub label: String,
+    pub label: &'static str,
 }
-
 
 #[derive(Clone)]
 pub struct Scanner {
@@ -50,12 +51,13 @@ impl Scanner {
     pub fn new(source: String) -> Self {
 
         let code_string:Vec<char> = source.chars().collect();
+        let code_len = &code_string.len() ;
         Scanner {
-            code: code_string.clone(),
+            code: code_string,
             start: 0 ,
             current: 0,
             line: 0,
-            codeLength: code_string.len()
+            codeLength: *code_len
         }
     }
 
@@ -130,12 +132,12 @@ impl Scanner {
     //     self.makeToken(TOKEN_START)
     //}
 
-    fn errorToken(&mut self, message: &str) -> Token {
+    fn errorToken(&mut self, message: &'static str) -> Token {
          Token {
             tokenType: TOKEN_ERROR,
             line: self.line,
-            name: String::from(message).chars().collect(),
-            label: "TOKEN_ERROR".to_string()
+            name: message.to_string(),
+            label: "TOKEN_ERROR"
         }
     }
 
@@ -231,7 +233,7 @@ impl Scanner {
             }
         }
         let idType = self.identifierType() ;
-         self.makeToken(idType)
+        self.makeToken(idType)
     }
 
     fn currentChar(&mut self) -> char {
@@ -261,13 +263,13 @@ impl Scanner {
 
     fn makeToken(&self, ttype: TokenType) -> Token {
 
-        let slice:Vec<char> = self.code[self.start..self.current].to_vec();
+        let slice: Vec<char> = self.code[self.start..self.current].to_vec();
 
         Token {
             tokenType: ttype,
             line: 0,
-            name: slice.into_iter().collect(),
-            label: stringify!(ttype).to_string(),
+            name: slice.iter().clone().collect::<String>(),
+            label: stringify!(ttype),
         }
     }
 
@@ -275,8 +277,8 @@ impl Scanner {
         Token {
             tokenType: TOKEN_EOF,
             line: 0,
-            name: String::from("EOF"),
-            label: "TOKEN_EOF".to_string(),
+            name: "EOF".to_string(),
+            label: "TOKEN_EOF",
         }
     }
 

@@ -1,11 +1,14 @@
+#[macro_use]
 use crate::chunk::{Chunk, OpCode};
-use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR};
+use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRET_RUNTIME_ERROR};
 use crate::value::{printValue, Value} ;
 use crate::debug::* ;
 use crate::compiler::{Compiler};
 
 use OpCode::* ;
 use std::borrow::Borrow;
+use std::rc::Rc;
+use std::io::{stderr, Write} ;
 
 pub enum InterpretResult {
     INTERPRET_OK,
@@ -14,7 +17,7 @@ pub enum InterpretResult {
 }
 
 pub struct VM {
-    chunk: Chunk, //Option<&'a mut Chunk>,
+    chunk: Chunk,
     ip: usize,
     stack: [Value;8000],
     stackTop: usize
@@ -26,7 +29,7 @@ impl VM {
         VM {
             chunk: Chunk::new(),
             ip: 0,
-            stack:[0.0;8000],
+            stack:[NUMBER_VAL!(0.0);8000],
             stackTop: 0
         }
     }
@@ -34,6 +37,11 @@ impl VM {
     pub fn push(&mut self, value:Value) {
         self.stack[self.stackTop] = value;
         self.stackTop+=1 ;
+    }
+
+    pub fn peek(&mut self, distance: usize) -> Value {
+        let index = self.stackTop-1-distance ;
+        self.stack[index]
     }
 
     pub fn pop(&mut self) -> Value {
@@ -54,8 +62,6 @@ impl VM {
             return INTERPRET_COMPILE_ERROR ;
         }
 
-       // self.chunk = Some(&chunk) ;
-
         self.run()
     }
 
@@ -64,7 +70,7 @@ impl VM {
             print!("          ");
             for slot in 0..self.stackTop {
                 print!("[ ");
-                printValue(self.stack[slot]);
+                printValue(&self.stack[slot]);
                 print!(" ]");
             }
             println!();
@@ -72,6 +78,11 @@ impl VM {
         disassembleInstruction(&self.chunk, self.ip) ;
     }
 
+    pub fn runtimeError(&self, message: &'static str) {
+        let instruction = self.chunk.code[self.ip-1] ;
+        let line = self.chunk.lines[self.ip-1];
+        let _ = stderr().write_fmt(format_args!("[line {}] in script\n", line));
+    }
 
     pub fn run(&mut self) -> InterpretResult {
 
@@ -89,7 +100,8 @@ impl VM {
                 {
                     let rt = self.pop() ;
                     let lt = self.pop() ;
-                    self.push(lt $binop rt);
+                    let val = lt $binop rt ;
+                    self.push(val);
                 }
             };
         }
@@ -113,8 +125,17 @@ impl VM {
                 OP_MULTIPLY => { BINOP!(*)},
                 OP_DIVIDE => {BINOP!(/)},
                 OP_NEGATE => {
-                    let val = -self.pop();
-                    self.push(val);
+                    let peeked_value = self.peek(0) ;
+                    match peeked_value {
+                        Value::Number(_) => {
+                            self.push(-peeked_value);
+                            self.pop() ;
+                        } ,
+                        _ => {
+                            self.runtimeError("Only numbers can be negated");
+                            return INTERPRET_RUNTIME_ERROR ;
+                        }
+                    }
                 },
                 _ => {return INTERPRET_OK}
             }
@@ -123,3 +144,4 @@ impl VM {
 
     }
 }
+

@@ -11,6 +11,9 @@ pub enum OpCode {
     OP_MULTIPLY,
     OP_DIVIDE,
     OP_NEGATE,
+    OP_NIL,
+    OP_TRUE,
+    OP_FALSE,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -23,6 +26,9 @@ impl From<u8> for OpCode {
             4 => OP_MULTIPLY,
             5 => OP_DIVIDE,
             6 => OP_NEGATE,
+            7 => OP_NIL,
+            8 => OP_TRUE,
+            9 => OP_FALSE,
             _ => OP_UNKNOWN,
         }
     }
