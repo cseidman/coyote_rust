@@ -16,6 +16,7 @@ mod value;
 mod vm;
 mod scanner;
 mod compiler;
+mod strings;
 
 use std::fs ;
 use std::path::*;

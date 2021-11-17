@@ -27,12 +27,19 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
 
     match instruction {
         OpCode::OP_RETURN => simpleInstruction("OP_RETURN", offset),
+        OpCode::OP_EQUAL => simpleInstruction("OP_EQUAL", offset),
+        OpCode::OP_GREATER => simpleInstruction("OP_GREATER", offset),
+        OpCode::OP_LESS => simpleInstruction("OP_LESS", offset),
         OpCode::OP_ADD => simpleInstruction("OP_ADD", offset),
         OpCode::OP_SUBTRACT => simpleInstruction("OP_SUBTRACT", offset),
         OpCode::OP_MULTIPLY => simpleInstruction("OP_MULTIPLY", offset),
         OpCode::OP_DIVIDE => simpleInstruction("OP_DIVIDE", offset),
+        OpCode::OP_NOT => simpleInstruction("OP_NOT", offset),
         OpCode::OP_NEGATE => simpleInstruction("OP_NEGATE", offset),
         OpCode::OP_CONSTANT => constantInstruction("OP_CONSTANT", chunk, offset),
+        OpCode::OP_NIL => simpleInstruction("OP_NIL", offset),
+        OpCode::OP_TRUE => simpleInstruction("OP_TRUE", offset),
+        OpCode::OP_FALSE => simpleInstruction("OP_FALSE", offset),
         _ => {
             println!("Unknown opcode {}", instruction as u8) ;
             offset+1
@@ -41,6 +48,7 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
 }
 
 pub fn disassembleChunk(chunk: &Chunk, name: &str) {
+    println!() ;
     println!("== {} ==", name);
     let mut offset  = 0 ;
     loop {

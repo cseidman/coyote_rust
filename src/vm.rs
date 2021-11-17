@@ -53,15 +53,18 @@ impl VM {
         self.stackTop = 0 ;
     }
 
-    pub fn interpret(&mut self, source: String) -> InterpretResult {
-
-        let mut compiler = Compiler::new(source, &mut self.chunk) ;
+    pub fn Compile(&mut self, source: String) -> InterpretResult {
+        let mut compiler = Compiler::new(source, &mut self.chunk);
 
         let res = compiler.compile();
         if !res {
-            return INTERPRET_COMPILE_ERROR ;
+            return INTERPRET_COMPILE_ERROR;
         }
+        INTERPRET_OK
+    }
 
+    pub fn interpret(&mut self, source: String) -> InterpretResult {
+        self.Compile(source) ;
         self.run()
     }
 
@@ -105,6 +108,17 @@ impl VM {
                 }
             };
         }
+
+        macro_rules! CMPOP {
+            ($binop:tt) => {
+                {
+                    let rt = self.pop() ;
+                    let lt = self.pop() ;
+                    let val = lt $binop rt ;
+                    self.push(BOOL_VAL!(val));
+                }
+            };
+        }
         
         loop {
 
@@ -113,6 +127,7 @@ impl VM {
 
             match instruction {
                 OP_RETURN => {
+                    self.pop();
                     return INTERPRET_OK
                 },
                 OP_CONSTANT => {
@@ -120,16 +135,30 @@ impl VM {
                     let constant = self.chunk.constants.values[constIndex] ;
                     self.push(constant) ;
                 },
+                OP_NIL => { self.push(NIL_VAL!()) },
+                OP_TRUE => { self.push(BOOL_VAL!(true)) },
+                OP_FALSE => { self.push(BOOL_VAL!(false)) },
+                OP_EQUAL => {
+                    let a = self.pop() ;
+                    let b = self.pop() ;
+                    self.push(BOOL_VAL!(a==b));
+                },
+                OP_GREATER => {CMPOP!(>)},
+                OP_LESS => {CMPOP!(<)},
                 OP_ADD => { BINOP!(+)},
                 OP_SUBTRACT => { BINOP!(-)},
                 OP_MULTIPLY => { BINOP!(*)},
                 OP_DIVIDE => {BINOP!(/)},
+                OP_NOT => {
+                  let value = self.pop() ;
+                  self.push(!value) ;
+                },
                 OP_NEGATE => {
                     let peeked_value = self.peek(0) ;
                     match peeked_value {
                         Value::Number(_) => {
-                            self.push(-peeked_value);
                             self.pop() ;
+                            self.push(-peeked_value);
                         } ,
                         _ => {
                             self.runtimeError("Only numbers can be negated");

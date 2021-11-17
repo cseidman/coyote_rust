@@ -1,7 +1,7 @@
 use std::rc::{Rc};
 
 #[derive(PartialEq)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum TokenType {
     // Single-character tokens.
     TOKEN_LEFT_PAREN, TOKEN_RIGHT_PAREN,
@@ -16,10 +16,10 @@ pub enum TokenType {
     TOKEN_GREATER, TOKEN_GREATER_EQUAL,
     TOKEN_LESS, TOKEN_LESS_EQUAL,
     // Literals.
-    TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_INTEGER, TOKEN_FLOAT,
+    TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_INTEGER, TOKEN_FLOAT, TOKEN_NIL,
     // Keywords.
     TOKEN_AND, TOKEN_CLASS, TOKEN_ELSE, TOKEN_FALSE,
-    TOKEN_FOR, TOKEN_FUN, TOKEN_IF, TOKEN_NIL, TOKEN_OR,
+    TOKEN_FOR, TOKEN_FUN, TOKEN_IF, TOKEN_OR,
     TOKEN_PRINT, TOKEN_RETURN, TOKEN_SUPER, TOKEN_THIS,
     TOKEN_TRUE, TOKEN_VAR, TOKEN_WHILE,
 
@@ -188,11 +188,11 @@ impl Scanner {
                 break;
             }
         }
-        if isFloat {
-            self.makeToken(TOKEN_FLOAT)
-        } else {
-            self.makeToken(TOKEN_INTEGER)
-        }
+        //if isFloat {
+            self.makeToken(TOKEN_NUMBER)
+        //} else {
+        //    self.makeToken(TOKEN_NUMBER)
+        //}
 
     }
 
@@ -226,6 +226,10 @@ impl Scanner {
         loop {
             let peek = self.peek() ;
 
+            if peek == '\n' || peek == '\r' {
+                break ;
+            }
+
             if self.isAlpha(peek) {
                 self.advance();
             } else {
@@ -257,6 +261,9 @@ impl Scanner {
     }
 
     pub fn advance(&mut self) -> char {
+        if self.current == self.code.len() {
+            return '\0';
+        }
         self.current += 1;
         self.code[self.current-1]
     }
@@ -284,7 +291,7 @@ impl Scanner {
 
     // Convert a slice of character vectors from the token into a string
     fn getTokenValue(&self) -> String {
-        let vecSlice = &self.code[self.start..=self.current] ;
+        let vecSlice = &self.code[self.start..=self.current-1] ;
         vecSlice.iter().collect()
     }
 

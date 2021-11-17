@@ -1,11 +1,16 @@
 #![macro_use]
+use crate::strings::*;
 
 use std::fmt ;
 use std::fmt::Formatter;
 use std::rc::Rc;
 use std::ops;
-use std::ops::Neg;
+use std::cmp ;
+use std::cmp::Ordering;
 
+macro_rules! NIL_VAL {
+    () => {Value::Nil};
+}
 macro_rules! NUMBER_VAL {($value:expr) => {Value::Number($value)};}
 macro_rules! AS_NUMBER {
     ($value:expr) => {{
@@ -17,17 +22,119 @@ macro_rules! AS_NUMBER {
 }
 
 macro_rules! STRING_VAL {($value:expr) => {Value::String($value)};}
-macro_rules! AS_STRING {($value:expr) => {if let $value = Value::String(x) {x}};}
+macro_rules! AS_STRING {
+    ($value:expr) => {
+    if let $value = Value::String(x) {
+        x
+    };
+}}
 
 macro_rules! BOOL_VAL {($value:expr) => {Value::Bool($value)};}
-macro_rules! AS_BOOL {($value:expr) => {if let $value = Value::Bool(x) {x}};}
+macro_rules! AS_BOOL {($value:expr) => {
+    if let $value = Value::Bool(x) {
+        x
+    }
+};}
 
 
 #[derive(Clone, Copy)]
 pub enum Value {
   Number(f64),
-  String(&'static str),
-  Bool(bool)
+  Pointer(u64),
+  Bool(bool),
+  Nil
+}
+
+impl cmp::PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+       match self {
+           Value::Number(x) => *x < {
+               match other {
+                   Value::Number(y) => *y,
+                   _ => 0.0
+               }
+           },
+           _ => false
+       }
+    }
+
+    fn le(&self, other: &Self) -> bool {
+        match self {
+            Value::Number(x) => *x <= {
+                match other {
+                    Value::Number(y) => *y,
+                    _ => 0.0
+                }
+            },
+            _ => false
+        }
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        match self {
+            Value::Number(x) => *x > {
+                match other {
+                    Value::Number(y) => *y,
+                    _ => 0.0
+                }
+            },
+            _ => false
+        }
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        match self {
+            Value::Number(x) => *x >= {
+                match other {
+                    Value::Number(y) => *y,
+                    _ => 0.0
+                }
+            },
+            _ => false
+        }
+    }
+}
+
+impl cmp::PartialEq<Self> for Value {
+    fn eq(&self, other: &Self) -> bool {
+
+        match self {
+            Value::Number(x) => *x == {
+                match other {
+                    Value::Number(y) => *y,
+                    _ => 0.0
+                }
+            },
+            Value::Bool(x) => *x == {
+                match other {
+                    Value::Bool(y) => *y,
+                    _ => false
+                }
+            },
+            Value::Nil => false,
+            // Todo: Handle string
+            _=> false
+        }
+    }
+}
+
+impl cmp::Eq for Value {}
+
+impl ops::Not for Value {
+    type Output = Value;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Value::Bool(x) => {
+                Value::Bool(!x)
+            },
+            _ => { panic!("Can only NOT booleans!") }
+        }
+    }
 }
 
 impl ops::Neg for Value {
@@ -125,14 +232,24 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Value::Number(x) => {write!(f, "{}",x)},
-            Value::String(x) => {write!(f, "{}",x)},
-            Value::Bool(x) => {write!(f, "{}",x)}
+            Value::Bool(x) => {
+                let mut bool_string = "true" ;
+                if !x {
+                    bool_string = "false" ;
+                }
+                write!(f, "{}",bool_string)
+            }
+            Value::Nil => {write!(f, "Nil")},
+            Value::Pointer(x) => {
+                write!(f, "Pointer: {}", x)
+            },
+            _ => {write!(f, "{}","Unknown value")},
         }
     }
 }
 
 pub fn printValue(value: &Value) {
-    print!("{}",AS_NUMBER!(*value)) ;
+    print!("{}",*value) ;
 }
 
 pub struct ValueArray{

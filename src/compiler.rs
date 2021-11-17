@@ -1,7 +1,7 @@
 #[macro_use]
 
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, writeChunk, OpCode, addConstant};
+use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, addStringConstant};
 use crate::value::{Value} ;
 use crate::scanner::*;
 use TokenType::* ;
@@ -28,7 +28,8 @@ enum expFunctions {
     UNARY,
     NUMBER,
     GROUPING,
-    LITERAL
+    LITERAL,
+    STRING
 }
 
 use expFunctions::* ;
@@ -63,7 +64,7 @@ impl Parser {
         // ratio of using RC or tuning lifetimes in a way to allow
         // the Token struct to implement 'Copy' was too low. This only
         // happens during the compilation phase so the impact should be minimal
-        self.tokens[pointer].clone()
+        self.tokens[pointer-1].clone()
     }
 
     pub fn advance(&mut self, token: Token) {
@@ -119,6 +120,7 @@ impl<'a> Compiler<'a> {
                 let _ = stderr().write_fmt(format_args!(" at '{}'", token.name));
             }
         }
+        let _ = stderr().write_fmt(format_args!(" {}\n", message)) ;
         self.parser.hadError = true ;
     }
 
@@ -199,6 +201,13 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn text(&mut self) {
+        let strval = self.parser.previous().name ;
+        let pointer = addStringConstant(&mut self.chunk, strval) as u64;
+        let value = Value::Pointer(pointer) ;
+        self.emitConstant(value) ;
+    }
+
     fn number(&mut self) {
         let number = f64::from_str(self.parser.previous().name.as_str()).unwrap() ;
         self.emitConstant(NUMBER_VAL!(number)) ;
@@ -214,6 +223,7 @@ impl<'a> Compiler<'a> {
         self.parsePrecedence(PREC_UNARY);
 
         match operatorType {
+            TOKEN_BANG  => self.emitOp(OP_NOT),
             TOKEN_MINUS => self.emitOp(OP_NEGATE),
             _ => {}
         }
@@ -226,6 +236,21 @@ impl<'a> Compiler<'a> {
         self.parsePrecedence(prec) ;
 
         match operatorType {
+            TOKEN_BANG_EQUAL  => {
+                self.emitOp(OP_EQUAL) ;
+                self.emitOp(OP_NOT) ;
+            },
+            TOKEN_EQUAL_EQUAL => self.emitOp(OP_EQUAL),
+            TOKEN_GREATER     => self.emitOp(OP_GREATER),
+            TOKEN_GREATER_EQUAL => {
+                self.emitOp(OP_LESS) ;
+                self.emitOp(OP_NOT) ;
+            },
+            TOKEN_LESS => self.emitOp(OP_LESS),
+            TOKEN_LESS_EQUAL => {
+                self.emitOp(OP_GREATER) ;
+                self.emitOp(OP_NOT) ;
+            },
             TOKEN_PLUS  => self.emitOp(OP_ADD),
             TOKEN_MINUS => self.emitOp(OP_SUBTRACT),
             TOKEN_STAR  => self.emitOp(OP_MULTIPLY),
@@ -236,14 +261,23 @@ impl<'a> Compiler<'a> {
 
     fn getRule(&mut self, tokenType: TokenType) -> (expFunctions, expFunctions, u8) {
         match tokenType {
-            TOKEN_LEFT_PAREN => (GROUPING, NONE, PREC_NONE),
-            TOKEN_MINUS      => (UNARY, BINARY , PREC_TERM),
-            TOKEN_PLUS
-            | TOKEN_SLASH
-            | TOKEN_STAR     => (NONE, BINARY, PREC_TERM),
-            TOKEN_NUMBER     => (NUMBER, NONE, PREC_NONE),
-            TOKEN_FALSE      => (LITERAL, NONE, PREC_NONE),
-            _ => (NONE, NONE, PREC_NONE )
+            TOKEN_LEFT_PAREN    => (GROUPING, NONE, PREC_NONE),
+            TOKEN_MINUS
+            | TOKEN_PLUS          => (UNARY, BINARY , PREC_TERM),
+            TOKEN_SLASH
+            | TOKEN_STAR        => (NONE, BINARY, PREC_FACTOR),
+            TOKEN_NUMBER        => (NUMBER, NONE, PREC_NONE),
+            TOKEN_STRING        => (STRING, NONE, PREC_NONE),
+            TOKEN_FALSE
+            | TOKEN_TRUE
+            | TOKEN_NIL         => (LITERAL, NONE, PREC_NONE),
+            TOKEN_BANG          => (UNARY, NONE, PREC_NONE),
+            TOKEN_EQUAL_EQUAL   => (NONE, BINARY, PREC_EQUALITY),
+            | TOKEN_GREATER
+            | TOKEN_GREATER_EQUAL
+            | TOKEN_LESS
+            | TOKEN_LESS_EQUAL  => (NONE, BINARY, PREC_COMPARISON),
+            _                   => (NONE, NONE, PREC_NONE )
         }
     }
 
@@ -253,6 +287,8 @@ impl<'a> Compiler<'a> {
             UNARY => self.unary(),
             GROUPING => self.grouping(),
             NUMBER => self.number(),
+            LITERAL => self.literal(),
+            STRING => self.text(),
             _ => {}
          }
     }
@@ -265,22 +301,23 @@ impl<'a> Compiler<'a> {
             self.error("Expect expression") ;
             return ;
         }
+        self.execExpression(prefixRule) ;
 
         loop {
-            let current = self.parser.current() ;
-            if precedence > self.getRule(current.tokenType).2 {
+            let current = self.parser.current().tokenType ;
+            let nextPrec = self.getRule(current).2  ;
+            if precedence > nextPrec{
                 break ;
             }
             self.advance() ;
-            let current = self.parser.current() ;
-            let infixRule = self.getRule(current.tokenType).1 ;
+            let previous = self.parser.previous().tokenType ;
+            let infixRule = self.getRule(previous).1 ;
             self.execExpression(infixRule) ;
         }
 
     }
 
     pub fn compile(&mut self) -> bool {
-
         self.advance() ;
         self.expression() ;
         self.consume(TOKEN_EOF, "Expect end of expression");
