@@ -1,4 +1,3 @@
-#[macro_use]
 use crate::chunk::{Chunk, OpCode};
 use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRET_RUNTIME_ERROR};
 use crate::value::{printValue, Value} ;
@@ -184,7 +183,7 @@ impl VM {
                 },
                 OP_NEGATE => {
                     // TODO: Make sure to set this to integer and float values
-                    let mut value = self.pop() as i64;
+                    let value = self.pop() as i64;
                     self.push(-value as u64);
                 },
                 OP_PRINT => {

@@ -22,7 +22,7 @@ fn stringInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     let constant = BytesToU64(&chunk.code[offset..(offset+8)]) ;
     let value = chunk.strings.getValue(constant as usize) ;
     print!("{:16} {} ", name, constant);
-    print!("{}\n",value) ;
+    println!("{}",value) ;
     offset + 1
 }
 

@@ -1,5 +1,3 @@
-#[macro_use]
-
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, addStringConstant, writeU64Chunk};
 use crate::value::{Value} ;
