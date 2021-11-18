@@ -1,7 +1,7 @@
 #[macro_use]
 
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, addStringConstant};
+use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, addStringConstant, writeU64Chunk};
 use crate::value::{Value} ;
 use crate::scanner::*;
 use TokenType::* ;
@@ -27,6 +27,10 @@ enum expFunctions {
     BINARY,
     UNARY,
     NUMBER,
+    INTEGER,
+    FLOAT,
+    BIGINT,
+    DOUBLE,
     GROUPING,
     LITERAL,
     STRING
@@ -148,9 +152,22 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    pub fn expression(&mut self) {
+    fn expression(&mut self) {
         self.parsePrecedence(PREC_ASSIGNMENT) ;
     }
+
+    fn check(&mut self, tokenType: TokenType) -> bool {
+        self.parser.current().tokenType == tokenType
+    }
+
+    fn t_match(&mut self, tokenType: TokenType) -> bool{
+        if !self.check(tokenType) {
+            return false;
+        }
+        self.advance();
+        true
+    }
+
 
     fn emitOp(&mut self, opcode: OpCode)  {
         self.emitByte(opcode as u8) ;
@@ -167,17 +184,33 @@ impl<'a> Compiler<'a> {
         self.emitByte(byte) ;
     }
 
+    fn emitU64(&mut self, number: u64 ) {
+        let line = self.parser.previous().line ;
+        let chunk = currentChunk!(self) ;
+        writeU64Chunk(chunk, number, line);
+    }
+
+    fn emitInteger(&mut self, opcode: OpCode, number: i64) {
+        self.emitOp(OP_IPUSH);
+        self.emitU64(number as u64) ;
+    }
+
+    fn emitFloat(&mut self, opcode: OpCode, number: f64) {
+        self.emitOp(OP_FPUSH);
+        self.emitU64(number as u64) ;
+    }
+
     fn emitReturn(&mut self) {
         self.emitOp(OP_RETURN) ;
     }
 
-    fn emitConstant(&mut self, value: Value) {
-        let byte = self.makeConstant(value) as u8 ;
+    fn emitConstant(&mut self, value: u64) {
+        let byte = self.makeConstant("df".to_string()) as u8 ;
         self.emitBytes(OP_CONSTANT, byte) ;
     }
 
-    fn makeConstant(&mut self, value: Value) -> usize {
-        let index = addConstant(currentChunk!(self), value) ;
+    fn makeConstant(&mut self, value: String) -> usize {
+        let index = addConstant(currentChunk!(self), 0) ;
         if index > u8::MAX as usize {
             self.error("Too many constants in one chunk") ;
             return 0 ;
@@ -204,13 +237,19 @@ impl<'a> Compiler<'a> {
     fn text(&mut self) {
         let strval = self.parser.previous().name ;
         let pointer = addStringConstant(&mut self.chunk, strval) as u64;
-        let value = Value::Pointer(pointer) ;
-        self.emitConstant(value) ;
+        self.emitOp(OP_STRING) ;
+        self.emitU64(pointer) ;
+    }
+
+    fn integer(&mut self) {
+        let integer = i64::from_str(self.parser.previous().name.as_str()).unwrap() ;
+        self.emitOp(OP_IPUSH);
+        self.emitU64(integer as u64);
     }
 
     fn number(&mut self) {
         let number = f64::from_str(self.parser.previous().name.as_str()).unwrap() ;
-        self.emitConstant(NUMBER_VAL!(number)) ;
+        //self.emitConstant(number as u64) ;
     }
 
     fn grouping(&mut self) {
@@ -267,6 +306,8 @@ impl<'a> Compiler<'a> {
             TOKEN_SLASH
             | TOKEN_STAR        => (NONE, BINARY, PREC_FACTOR),
             TOKEN_NUMBER        => (NUMBER, NONE, PREC_NONE),
+            TOKEN_INTEGER      => (INTEGER, NONE, PREC_NONE),
+            TOKEN_FLOAT        => (FLOAT, NONE, PREC_NONE),
             TOKEN_STRING        => (STRING, NONE, PREC_NONE),
             TOKEN_FALSE
             | TOKEN_TRUE
@@ -289,6 +330,7 @@ impl<'a> Compiler<'a> {
             NUMBER => self.number(),
             LITERAL => self.literal(),
             STRING => self.text(),
+            INTEGER => self.integer(),
             _ => {}
          }
     }
@@ -317,10 +359,33 @@ impl<'a> Compiler<'a> {
 
     }
 
+    fn printStatement(&mut self) {
+        self.expression();
+        self.consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+        self.emitOp(OP_PRINT);
+    }
+
+    fn statement(&mut self) {
+        if self.t_match(TOKEN_PRINT) {
+            self.printStatement();
+        }
+    }
+
+    fn declaration(&mut self) {
+        self.statement() ;
+    }
+
     pub fn compile(&mut self) -> bool {
         self.advance() ;
         self.expression() ;
         self.consume(TOKEN_EOF, "Expect end of expression");
+
+        loop {
+            if self.t_match(TOKEN_EOF) {
+                break ;
+            }
+            self.declaration();
+        }
 
         self.endCompiler() ;
 

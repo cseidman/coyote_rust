@@ -17,6 +17,7 @@ mod vm;
 mod scanner;
 mod compiler;
 mod strings;
+mod common;
 
 use std::fs ;
 use std::path::*;
@@ -72,6 +73,10 @@ pub fn Repl() {
 
         let _=stdout().flush();
         stdin().read_line(&mut line).unwrap();
+
+        if line == "\n" {
+            return;
+        }
 
         vm.interpret(line);
     }

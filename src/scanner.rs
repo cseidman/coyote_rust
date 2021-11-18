@@ -188,11 +188,11 @@ impl Scanner {
                 break;
             }
         }
-        //if isFloat {
-            self.makeToken(TOKEN_NUMBER)
-        //} else {
-        //    self.makeToken(TOKEN_NUMBER)
-        //}
+        if isFloat {
+            self.makeToken(TOKEN_FLOAT)
+        } else {
+            self.makeToken(TOKEN_INTEGER)
+        }
 
     }
 

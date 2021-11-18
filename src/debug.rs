@@ -1,5 +1,6 @@
 use crate::chunk::{Chunk,OpCode};
 use crate::value::{Value, printValue};
+use crate::common::{BytesToU64};
 use std::convert::Into;
 
 fn simpleInstruction(name: &str, offset: usize) -> usize {
@@ -7,17 +8,35 @@ fn simpleInstruction(name: &str, offset: usize) -> usize {
     offset + 1
 }
 
+fn valueInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
+    let offset = offset+1 ;
+    let constant = BytesToU64(&chunk.code[offset..(offset+8)]) ;
+    print!("{:16} {} '", name, constant);
+    print!("{}",constant) ;
+    println!("'") ;
+    offset + 1
+}
+
+fn stringInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
+    let offset = offset+1 ;
+    let constant = BytesToU64(&chunk.code[offset..(offset+8)]) ;
+    let value = chunk.strings.getValue(constant as usize) ;
+    print!("{:16} {} ", name, constant);
+    print!("{}\n",value) ;
+    offset + 1
+}
+
 fn constantInstruction(name: &str, chunk: &Chunk, offset: usize) -> usize {
-    let constant = chunk.code[offset+1] ;
+    let constant = chunk.code[offset] ;
     print!("{:16} {} '", name, constant);
     printValue(&chunk.constants.values[constant as usize]) ;
     println!("'") ;
-    offset + 2
+    offset +1
 }
 
 pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
     print!("{:04} ", offset) ;
-    if offset > 0 && chunk.lines[offset] == chunk.lines[offset-1] {
+    if offset > 0 && chunk.lines[offset] == chunk.lines[offset-9] {
         print!("   | ") ;
     } else {
         print!("{:4} ",chunk.lines[offset]) ;
@@ -40,9 +59,12 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         OpCode::OP_NIL => simpleInstruction("OP_NIL", offset),
         OpCode::OP_TRUE => simpleInstruction("OP_TRUE", offset),
         OpCode::OP_FALSE => simpleInstruction("OP_FALSE", offset),
+        OpCode::OP_IPUSH => valueInstruction("OP_IPUSH",  chunk, offset),
+        OpCode::OP_STRING => stringInstruction("OP_STRING",  chunk, offset),
+        OpCode::OP_PRINT => simpleInstruction("OP_PRINT", offset),
         _ => {
             println!("Unknown opcode {}", instruction as u8) ;
-            offset+1
+            offset
         }
     }
 }

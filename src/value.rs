@@ -8,35 +8,6 @@ use std::ops;
 use std::cmp ;
 use std::cmp::Ordering;
 
-macro_rules! NIL_VAL {
-    () => {Value::Nil};
-}
-macro_rules! NUMBER_VAL {($value:expr) => {Value::Number($value)};}
-macro_rules! AS_NUMBER {
-    ($value:expr) => {{
-         match $value {
-             Value::Number(x) => x ,
-             _=> 0.0
-         }
-    }};
-}
-
-macro_rules! STRING_VAL {($value:expr) => {Value::String($value)};}
-macro_rules! AS_STRING {
-    ($value:expr) => {
-    if let $value = Value::String(x) {
-        x
-    };
-}}
-
-macro_rules! BOOL_VAL {($value:expr) => {Value::Bool($value)};}
-macro_rules! AS_BOOL {($value:expr) => {
-    if let $value = Value::Bool(x) {
-        x
-    }
-};}
-
-
 #[derive(Clone, Copy)]
 pub enum Value {
   Number(f64),
@@ -248,12 +219,12 @@ impl fmt::Display for Value {
     }
 }
 
-pub fn printValue(value: &Value) {
-    print!("{}",*value) ;
+pub fn printValue(number: &u64) {
+    print!("{}",&number) ;
 }
 
 pub struct ValueArray{
-    pub values: Vec<Value>
+    pub values: Vec<u64>
 }
 
 impl ValueArray {
@@ -264,6 +235,6 @@ impl ValueArray {
     }
 }
 
-pub fn writeValueArray(array: &mut ValueArray, value: Value) {
+pub fn writeValueArray(array: &mut ValueArray, value: u64) {
     array.values.push(value) ;
 }

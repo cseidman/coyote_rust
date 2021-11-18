@@ -19,6 +19,12 @@ pub enum OpCode {
     OP_EQUAL,
     OP_GREATER,
     OP_LESS,
+    OP_IPOP,
+    OP_IPUSH,
+    OP_FPUSH,
+    OP_FPOP,
+    OP_STRING,
+    OP_PRINT,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -38,6 +44,12 @@ impl From<u8> for OpCode {
             11  => OP_EQUAL,
             12  => OP_GREATER,
             13  => OP_LESS,
+            14  => OP_IPOP,
+            15  => OP_IPUSH,
+            16  => OP_FPUSH,
+            17  => OP_FPOP,
+            18  => OP_STRING,
+            19  => OP_PRINT,
             _ => OP_UNKNOWN,
         }
     }
@@ -75,15 +87,22 @@ pub fn writeChunk(chunk: &mut Chunk, byte: u8, line: usize) {
     chunk.lines.push(line) ;
 }
 
-pub fn addConstant(chunk: &mut Chunk, value: Value) -> usize {
+pub fn writeU64Chunk(chunk: &mut Chunk, data: u64, line: usize) {
+    for b in u64::to_be_bytes(data) {
+        chunk.code.push(b);
+        chunk.lines.push(line) ;
+    }
+
+}
+
+pub fn addConstant(chunk: &mut Chunk, value: u64) -> usize {
     writeValueArray(&mut chunk.constants, value) ;
     chunk.constants.values.len()-1
 }
 
 pub fn addStringConstant(chunk: &mut Chunk, s: String) -> usize {
     let stringIndex = chunk.strings.store(s) ;
-    let stringVal = Value::Pointer(stringIndex as u64) ;
-    writeValueArray(&mut chunk.constants, stringVal) ;
+    writeValueArray(&mut chunk.constants, stringIndex as u64) ;
     chunk.constants.values.len()-1
 }
 
