@@ -1,11 +1,12 @@
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, addStringConstant, writeU64Chunk};
-use crate::value::{Value} ;
+use crate::value;
 use crate::scanner::*;
 use TokenType::* ;
 use std::io::{stderr, Write} ;
 use OpCode::*;
 use std::str::{FromStr};
+use crate::ast::* ;
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -40,7 +41,8 @@ use crate::debug::{disassembleInstruction, disassembleChunk};
 pub struct Compiler<'a>  {
     chunk: &'a mut Chunk,
     scanner: Scanner ,
-    parser: Parser
+    parser: Parser,
+    ast: Vec<Ast>
 }
 
 pub struct Parser {
@@ -97,8 +99,41 @@ impl<'a> Compiler<'a> {
         Compiler {
             chunk,
             scanner: Scanner::new(source),
-            parser: Parser::new()
+            parser: Parser::new(),
+            ast: Vec::new()
         }
+    }
+
+    fn astPush(&mut self, tokenType: TokenType, label: String, value: u64 ) {
+
+        let opType = match tokenType {
+            TOKEN_PLUS
+            | TOKEN_MINUS
+            | TOKEN_STAR
+            | TOKEN_SLASH => OpType::Binop,
+            TOKEN_INTEGER
+            | TOKEN_FLOAT
+            | TOKEN_STRING => OpType::Literal,
+            _ => OpType::Literal
+        };
+
+        let dataType = match  tokenType {
+            TOKEN_INTEGER => DataType::Integer,
+            TOKEN_FLOAT => DataType::Float,
+            TOKEN_STRING => DataType::String,
+            TOKEN_BOOL => DataType::Bool,
+            _ => DataType::None
+        } ;
+
+        self.ast.push(
+            Ast {
+                tokenType,
+                opType,
+                dataType,
+                label,
+                value
+            }
+        );
     }
 
     pub fn error(&mut self, message: &str) {
@@ -188,16 +223,6 @@ impl<'a> Compiler<'a> {
         writeU64Chunk(chunk, number, line);
     }
 
-    fn emitInteger(&mut self, opcode: OpCode, number: i64) {
-        self.emitOp(OP_IPUSH);
-        self.emitU64(number as u64) ;
-    }
-
-    fn emitFloat(&mut self, opcode: OpCode, number: f64) {
-        self.emitOp(OP_FPUSH);
-        self.emitU64(number as u64) ;
-    }
-
     fn emitReturn(&mut self) {
         self.emitOp(OP_RETURN) ;
     }
@@ -235,22 +260,25 @@ impl<'a> Compiler<'a> {
     fn text(&mut self) {
         let strval = self.parser.previous().name ;
         let pointer = addStringConstant(&mut self.chunk, strval) as u64;
-        self.emitOp(OP_STRING) ;
+        self.emitOp(OP_PUSH) ;
         self.emitU64(pointer) ;
     }
 
     fn integer(&mut self) {
-        let integer = i64::from_str(self.parser.previous().name.as_str()).unwrap() ;
-        self.emitOp(OP_IPUSH);
+        let strVal = self.parser.previous().name ;
+        let integer = i64::from_str(strVal.as_str()).unwrap() ;
+        self.astPush(TokenType::TOKEN_INTEGER, strVal, integer as u64);
+        self.emitOp(OP_PUSH);
         self.emitU64(integer as u64);
     }
 
-    fn number(&mut self) {
-        let number = f64::from_str(self.parser.previous().name.as_str()).unwrap() ;
-        //self.emitConstant(number as u64) ;
+    fn float(&mut self) {
+        let float = f64::from_str(self.parser.previous().name.as_str()).unwrap() ;
+        self.emitOp(OP_PUSH);
+        self.emitU64(float as u64);
     }
 
-    fn grouping(&mut self) {
+     fn grouping(&mut self) {
         self.expression();
         self.consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression") ;
     }
@@ -261,17 +289,19 @@ impl<'a> Compiler<'a> {
 
         match operatorType {
             TOKEN_BANG  => self.emitOp(OP_NOT),
-            TOKEN_MINUS => self.emitOp(OP_NEGATE),
+            TOKEN_MINUS => self.emitOp(OP_INEGATE),
             _ => {}
         }
     }
 
     fn binary(&mut self) {
-        let operatorType = self.parser.previous().tokenType ;
+        let token = self.parser.previous() ;
+        let operatorType = token.tokenType ;
         let rule = self.getRule(operatorType) ;
         let prec = rule.2 + 1 ;
         self.parsePrecedence(prec) ;
 
+        self.astPush(operatorType, token.name, 0);
         match operatorType {
             TOKEN_BANG_EQUAL  => {
                 self.emitOp(OP_EQUAL) ;
@@ -288,9 +318,14 @@ impl<'a> Compiler<'a> {
                 self.emitOp(OP_GREATER) ;
                 self.emitOp(OP_NOT) ;
             },
-            TOKEN_PLUS  => self.emitOp(OP_ADD),
+            TOKEN_PLUS  => {
+                // TODO: This needs to be able to diff between ints and floats
+                self.emitOp(OP_IADD)
+            },
             TOKEN_MINUS => self.emitOp(OP_SUBTRACT),
-            TOKEN_STAR  => self.emitOp(OP_MULTIPLY),
+            TOKEN_STAR  => {
+                self.emitOp(OP_MULTIPLY)
+            },
             TOKEN_SLASH => self.emitOp(OP_DIVIDE),
             _ => {}
         }
@@ -325,10 +360,10 @@ impl<'a> Compiler<'a> {
             BINARY => self.binary(),
             UNARY => self.unary(),
             GROUPING => self.grouping(),
-            NUMBER => self.number(),
             LITERAL => self.literal(),
             STRING => self.text(),
             INTEGER => self.integer(),
+            FLOAT => self.float(),
             _ => {}
          }
     }
@@ -387,6 +422,12 @@ impl<'a> Compiler<'a> {
 
         self.endCompiler() ;
 
+        for i in &self.ast {
+            println!("{}",i.label);
+        }
+
+        let tree = buildTree(&self.ast) ;
+        walkTree(tree, 1) ;
 
         !self.parser.hadError
     }

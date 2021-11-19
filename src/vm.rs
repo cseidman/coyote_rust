@@ -1,6 +1,6 @@
 use crate::chunk::{Chunk, OpCode};
 use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRET_RUNTIME_ERROR};
-use crate::value::{printValue, Value} ;
+use crate::value::{printValue} ;
 use crate::debug::* ;
 use crate::compiler::{Compiler};
 
@@ -68,16 +68,15 @@ impl VM {
     }
 
     pub fn debug(&self) {
-        if self.stackTop > 0 {
-            print!("          ");
-            for slot in 0..self.stackTop {
-                print!("[ ");
-                printValue(&self.stack[slot]);
-                print!(" ]");
-            }
-            println!();
-            disassembleInstruction(&self.chunk, self.ip) ;
+
+        print!("          ");
+        for slot in 0..self.stackTop {
+            print!("[ ");
+            printValue(&self.stack[slot]);
+            print!(" ]");
         }
+        println!();
+        disassembleInstruction(&self.chunk, self.ip) ;
 
     }
 
@@ -93,18 +92,10 @@ impl VM {
         macro_rules! READ_OPERAND {
             () => {
                 {
-                 let val:[u8;8] = [
-                        self.chunk.code[self.ip] ,
-                        self.chunk.code[self.ip+1] ,
-                        self.chunk.code[self.ip+2] ,
-                        self.chunk.code[self.ip+3] ,
-                        self.chunk.code[self.ip+4] ,
-                        self.chunk.code[self.ip+5] ,
-                        self.chunk.code[self.ip+6] ,
-                        self.chunk.code[self.ip+7]
-                    ];
-                    self.ip+=8;
-                    u64::from_be_bytes(val)
+                  let mut val:[u8;8] = Default::default();
+                  val.copy_from_slice(&self.chunk.code[self.ip..(self.ip+8)]) ;
+                  self.ip+=8;
+                  u64::from_be_bytes(val)
                 }
             };
         }
@@ -119,12 +110,12 @@ impl VM {
         }
 
         macro_rules! BINOP {
-            ($binop:tt) => {
+            ($binop:tt, $type:ty) => {
                 {
-                    let rt = self.pop() ;
-                    let lt = self.pop() ;
+                    let rt = self.pop() as $type ;
+                    let lt = self.pop() as $type;
                     let val = lt $binop rt ;
-                    self.push(val);
+                    self.push(val as u64);
                 }
             };
         }
@@ -155,11 +146,11 @@ impl VM {
                     let constant = self.chunk.constants.values[constIndex] ;
                     self.push(constant as u64) ;
                 },
-                OP_IPUSH => {
+                OP_PUSH => {
                     let val = READ_OPERAND!() ;
                     self.push(val) ;
                 },
-                OP_STRING => {
+                OP_SPOP => {
                     let val = READ_OPERAND!() ;
                     self.push(val) ;
                 }
@@ -173,19 +164,23 @@ impl VM {
                 },
                 OP_GREATER => {CMPOP!(>)},
                 OP_LESS => {CMPOP!(<)},
-                OP_ADD => { BINOP!(+)},
-                OP_SUBTRACT => { BINOP!(-)},
-                OP_MULTIPLY => { BINOP!(*)},
-                OP_DIVIDE => {BINOP!(/)},
+                OP_IADD => { BINOP!(+ ,i64)},
+                OP_SUBTRACT => { BINOP!(- ,i64)},
+                OP_MULTIPLY => { BINOP!(*, i64)},
+                OP_DIVIDE => {BINOP!(/, i64)},
+
                 OP_NOT => {
                   let value = self.pop() ;
                   self.push(!value) ;
                 },
-                OP_NEGATE => {
-                    // TODO: Make sure to set this to integer and float values
-                    let value = self.pop() as i64;
-                    self.push(-value as u64);
+                OP_INEGATE => {
+                    let value = -(self.pop() as i64);
+                    self.push(value as u64);
                 },
+                OP_FNEGATE => {
+                    let value = -(self.pop() as f64);
+                    self.push(value as u64);
+                }
                 OP_PRINT => {
                     let data = self.pop() ;
                     println!("{}", data) ;

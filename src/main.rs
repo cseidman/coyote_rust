@@ -18,6 +18,7 @@ mod scanner;
 mod compiler;
 mod strings;
 mod common;
+mod ast;
 
 use std::fs ;
 use std::path::*;

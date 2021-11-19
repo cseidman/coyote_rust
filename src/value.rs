@@ -8,14 +8,6 @@ use std::ops;
 use std::cmp ;
 use std::cmp::Ordering;
 
-#[derive(Clone, Copy)]
-pub enum Value {
-  Number(f64),
-  Pointer(u64),
-  Bool(bool),
-  Nil
-}
-
 pub fn printValue(number: &u64) {
     print!("{}",&number) ;
 }

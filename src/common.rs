@@ -1,14 +1,6 @@
 pub fn BytesToU64(bytes: &[u8]) -> u64 {
-    let val:[u8;8] = [
-        bytes[0],
-        bytes[1],
-        bytes[2],
-        bytes[3],
-        bytes[4],
-        bytes[5],
-        bytes[6],
-        bytes[7]
-    ];
+    let mut val:[u8;8] = Default::default();
+    val.copy_from_slice(bytes) ;
     u64::from_be_bytes(val)
 }
 

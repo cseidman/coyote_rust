@@ -1,5 +1,5 @@
 use crate::chunk::{Chunk,OpCode};
-use crate::value::{Value, printValue};
+use crate::value::{printValue};
 use crate::common::{BytesToU64};
 use std::convert::Into;
 
@@ -49,18 +49,17 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         OpCode::OP_EQUAL => simpleInstruction("OP_EQUAL", offset),
         OpCode::OP_GREATER => simpleInstruction("OP_GREATER", offset),
         OpCode::OP_LESS => simpleInstruction("OP_LESS", offset),
-        OpCode::OP_ADD => simpleInstruction("OP_ADD", offset),
+        OpCode::OP_IADD => simpleInstruction("OP_IADD", offset),
         OpCode::OP_SUBTRACT => simpleInstruction("OP_SUBTRACT", offset),
         OpCode::OP_MULTIPLY => simpleInstruction("OP_MULTIPLY", offset),
         OpCode::OP_DIVIDE => simpleInstruction("OP_DIVIDE", offset),
         OpCode::OP_NOT => simpleInstruction("OP_NOT", offset),
-        OpCode::OP_NEGATE => simpleInstruction("OP_NEGATE", offset),
+        OpCode::OP_INEGATE => simpleInstruction("OP_INEGATE", offset),
         OpCode::OP_CONSTANT => constantInstruction("OP_CONSTANT", chunk, offset),
         OpCode::OP_NIL => simpleInstruction("OP_NIL", offset),
         OpCode::OP_TRUE => simpleInstruction("OP_TRUE", offset),
         OpCode::OP_FALSE => simpleInstruction("OP_FALSE", offset),
-        OpCode::OP_IPUSH => valueInstruction("OP_IPUSH",  chunk, offset),
-        OpCode::OP_STRING => stringInstruction("OP_STRING",  chunk, offset),
+        OpCode::OP_PUSH => valueInstruction("OP_PUSH",  chunk, offset),
         OpCode::OP_PRINT => simpleInstruction("OP_PRINT", offset),
         _ => {
             println!("Unknown opcode {}", instruction as u8) ;
