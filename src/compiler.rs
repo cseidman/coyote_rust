@@ -21,7 +21,7 @@ const PREC_CALL: u8 = 9 ;       // . ()
 const PREC_PRIMARY: u8 = 10 ;
 
 #[derive(PartialEq)]
-enum expFunctions {
+enum ExpFunctions {
     NONE,
     BINARY,
     UNARY,
@@ -35,14 +35,23 @@ enum expFunctions {
     STRING
 }
 
-use expFunctions::* ;
+use ExpFunctions::* ;
 use crate::debug::{disassembleInstruction, disassembleChunk};
 
-pub struct Compiler<'a>  {
-    chunk: &'a mut Chunk,
-    scanner: Scanner ,
-    parser: Parser,
-    ast: Vec<Ast>
+struct Rule {
+    prefix: ExpFunctions,
+    infix: ExpFunctions,
+    prec: u8
+}
+
+impl Rule {
+    pub fn new(prefix: ExpFunctions, infix: ExpFunctions, prec: u8) -> Rule {
+        Rule {
+            prefix,
+            infix,
+            prec
+        }
+    }
 }
 
 pub struct Parser {
@@ -93,6 +102,13 @@ macro_rules! currentChunk {
     };
 }
 
+pub struct Compiler<'a>  {
+    chunk: &'a mut Chunk,
+    scanner: Scanner ,
+    parser: Parser,
+    ast: Vec<Ast>
+}
+
 impl<'a> Compiler<'a> {
 
     pub fn new(source: String, chunk: &'a mut Chunk) -> Self {
@@ -104,18 +120,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn astPush(&mut self, tokenType: TokenType, label: String, value: u64 ) {
-
-        let opType = match tokenType {
-            TOKEN_PLUS
-            | TOKEN_MINUS
-            | TOKEN_STAR
-            | TOKEN_SLASH => OpType::Binop,
-            TOKEN_INTEGER
-            | TOKEN_FLOAT
-            | TOKEN_STRING => OpType::Literal,
-            _ => OpType::Literal
-        };
+    fn astPush(&mut self, tokenType: TokenType, opType: OpType, label: &str, value: u64 ) {
 
         let dataType = match  tokenType {
             TOKEN_INTEGER => DataType::Integer,
@@ -130,7 +135,7 @@ impl<'a> Compiler<'a> {
                 tokenType,
                 opType,
                 dataType,
-                label,
+                label: label.to_string(),
                 value
             }
         );
@@ -251,31 +256,29 @@ impl<'a> Compiler<'a> {
 
     fn literal(&mut self) {
         match self.parser.previous().tokenType {
-            TOKEN_FALSE => self.emitOp(OP_FALSE),
-            TOKEN_TRUE => self.emitOp(OP_TRUE),
-            _ => self.emitOp(OP_NIL),
+            TOKEN_FALSE => self.astPush(TOKEN_FALSE, OpType::Literal, "False", 0),
+            TOKEN_TRUE => self.astPush(TOKEN_TRUE, OpType::Literal, "True", 1),
+            _ => self.astPush(TOKEN_NIL, OpType::Literal, "Nil", 0)
         }
     }
 
     fn text(&mut self) {
-        let strval = self.parser.previous().name ;
-        let pointer = addStringConstant(&mut self.chunk, strval) as u64;
-        self.emitOp(OP_PUSH) ;
-        self.emitU64(pointer) ;
+        let strVal = self.parser.previous().name ;
+        let pointer = addStringConstant(&mut self.chunk, strVal.clone()) as u64;
+        let s = strVal.as_str();
+        self.astPush(TokenType::TOKEN_STRING, OpType::Literal, s, pointer as u64);
     }
 
     fn integer(&mut self) {
         let strVal = self.parser.previous().name ;
         let integer = i64::from_str(strVal.as_str()).unwrap() ;
-        self.astPush(TokenType::TOKEN_INTEGER, strVal, integer as u64);
-        self.emitOp(OP_PUSH);
-        self.emitU64(integer as u64);
+        self.astPush(TokenType::TOKEN_INTEGER, OpType::Literal, strVal.as_str(), integer as u64);
     }
 
     fn float(&mut self) {
-        let float = f64::from_str(self.parser.previous().name.as_str()).unwrap() ;
-        self.emitOp(OP_PUSH);
-        self.emitU64(float as u64);
+        let strVal = self.parser.previous().name ;
+        let float = f64::from_str(strVal.as_str()).unwrap() ;
+        self.astPush(TokenType::TOKEN_FLOAT, OpType::Literal,strVal.as_str(), float as u64);
     }
 
      fn grouping(&mut self) {
@@ -288,8 +291,8 @@ impl<'a> Compiler<'a> {
         self.parsePrecedence(PREC_UNARY);
 
         match operatorType {
-            TOKEN_BANG  => self.emitOp(OP_NOT),
-            TOKEN_MINUS => self.emitOp(OP_INEGATE),
+            TOKEN_BANG  => self.astPush(TokenType::TOKEN_BANG, OpType::Unary,"!", 0),
+            TOKEN_MINUS => self.astPush(TokenType::TOKEN_MINUS, OpType::Unary,"-", 0),
             _ => {}
         }
     }
@@ -298,64 +301,38 @@ impl<'a> Compiler<'a> {
         let token = self.parser.previous() ;
         let operatorType = token.tokenType ;
         let rule = self.getRule(operatorType) ;
-        let prec = rule.2 + 1 ;
+        let prec = rule.prec + 1 ;
         self.parsePrecedence(prec) ;
 
-        self.astPush(operatorType, token.name, 0);
-        match operatorType {
-            TOKEN_BANG_EQUAL  => {
-                self.emitOp(OP_EQUAL) ;
-                self.emitOp(OP_NOT) ;
-            },
-            TOKEN_EQUAL_EQUAL => self.emitOp(OP_EQUAL),
-            TOKEN_GREATER     => self.emitOp(OP_GREATER),
-            TOKEN_GREATER_EQUAL => {
-                self.emitOp(OP_LESS) ;
-                self.emitOp(OP_NOT) ;
-            },
-            TOKEN_LESS => self.emitOp(OP_LESS),
-            TOKEN_LESS_EQUAL => {
-                self.emitOp(OP_GREATER) ;
-                self.emitOp(OP_NOT) ;
-            },
-            TOKEN_PLUS  => {
-                // TODO: This needs to be able to diff between ints and floats
-                self.emitOp(OP_IADD)
-            },
-            TOKEN_MINUS => self.emitOp(OP_SUBTRACT),
-            TOKEN_STAR  => {
-                self.emitOp(OP_MULTIPLY)
-            },
-            TOKEN_SLASH => self.emitOp(OP_DIVIDE),
-            _ => {}
-        }
+        self.astPush(operatorType, OpType::Binop,token.name.as_str(), 0);
+
     }
 
-    fn getRule(&mut self, tokenType: TokenType) -> (expFunctions, expFunctions, u8) {
+    fn getRule(&mut self, tokenType: TokenType) -> Rule {
         match tokenType {
-            TOKEN_LEFT_PAREN    => (GROUPING, NONE, PREC_NONE),
+            TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_NONE),
             TOKEN_MINUS
-            | TOKEN_PLUS          => (UNARY, BINARY , PREC_TERM),
+            | TOKEN_PLUS        => Rule::new(UNARY, BINARY , PREC_TERM),
             TOKEN_SLASH
-            | TOKEN_STAR        => (NONE, BINARY, PREC_FACTOR),
-            TOKEN_NUMBER        => (NUMBER, NONE, PREC_NONE),
-            TOKEN_INTEGER      => (INTEGER, NONE, PREC_NONE),
-            TOKEN_FLOAT        => (FLOAT, NONE, PREC_NONE),
-            TOKEN_STRING        => (STRING, NONE, PREC_NONE),
+            | TOKEN_STAR        => Rule::new(NONE, BINARY, PREC_FACTOR),
+            TOKEN_NUMBER        => Rule::new(NUMBER, NONE, PREC_NONE),
+            TOKEN_INTEGER       => Rule::new(INTEGER, NONE, PREC_NONE),
+            TOKEN_FLOAT         => Rule::new(FLOAT, NONE, PREC_NONE),
+            TOKEN_STRING        => Rule::new(STRING, NONE, PREC_NONE),
             TOKEN_FALSE
             | TOKEN_TRUE
-            | TOKEN_NIL         => (LITERAL, NONE, PREC_NONE),
-            TOKEN_BANG          => (UNARY, NONE, PREC_NONE),
-            TOKEN_EQUAL_EQUAL   => (NONE, BINARY, PREC_EQUALITY),
+            | TOKEN_NIL         => Rule::new(LITERAL, NONE, PREC_NONE),
+            TOKEN_BANG          => Rule::new(UNARY, NONE, PREC_NONE),
+            TOKEN_EQUAL_EQUAL   => Rule::new(NONE, BINARY, PREC_EQUALITY),
             | TOKEN_GREATER
             | TOKEN_GREATER_EQUAL
             | TOKEN_LESS
-            | TOKEN_LESS_EQUAL  => (NONE, BINARY, PREC_COMPARISON),
-            _                   => (NONE, NONE, PREC_NONE )
+            | TOKEN_LESS_EQUAL  => Rule::new(NONE, BINARY, PREC_COMPARISON),
+            _                   => Rule::new(NONE, NONE, PREC_NONE )
         }
     }
 
-    fn execExpression(&mut self, func: expFunctions) {
+    fn execExpression(&mut self, func:ExpFunctions) {
         match func {
             BINARY => self.binary(),
             UNARY => self.unary(),
@@ -371,7 +348,7 @@ impl<'a> Compiler<'a> {
     fn parsePrecedence(&mut self, precedence: u8) {
         self.advance() ;
         let token_type = self.parser.previous().tokenType ;
-        let prefixRule = self.getRule(token_type).0 ;
+        let prefixRule = self.getRule(token_type).prefix ;
         if prefixRule == NONE {
             self.error("Expect expression") ;
             return ;
@@ -380,13 +357,13 @@ impl<'a> Compiler<'a> {
 
         loop {
             let current = self.parser.current().tokenType ;
-            let nextPrec = self.getRule(current).2  ;
+            let nextPrec = self.getRule(current).prec  ;
             if precedence > nextPrec{
                 break ;
             }
             self.advance() ;
             let previous = self.parser.previous().tokenType ;
-            let infixRule = self.getRule(previous).1 ;
+            let infixRule = self.getRule(previous).infix ;
             self.execExpression(infixRule) ;
         }
 
@@ -395,7 +372,7 @@ impl<'a> Compiler<'a> {
     fn printStatement(&mut self) {
         self.expression();
         self.consume(TOKEN_SEMICOLON, "Expect ';' after value.");
-        self.emitOp(OP_PRINT);
+        self.astPush(TOKEN_PRINT, OpType::Statement, "print", 0);
     }
 
     fn statement(&mut self) {
@@ -410,8 +387,6 @@ impl<'a> Compiler<'a> {
 
     pub fn compile(&mut self) -> bool {
         self.advance() ;
-        self.expression() ;
-        self.consume(TOKEN_EOF, "Expect end of expression");
 
         loop {
             if self.t_match(TOKEN_EOF) {

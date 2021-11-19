@@ -64,7 +64,8 @@ impl VM {
 
     pub fn interpret(&mut self, source: String) -> InterpretResult {
         self.Compile(source) ;
-        self.run()
+        //self.run()
+        INTERPRET_OK
     }
 
     pub fn debug(&self) {
