@@ -25,6 +25,7 @@ pub enum OpCode {
     OP_SPOP,
     OP_PRINT,
     OP_FNEGATE,
+    OP_DEFINE_GLOBAL,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -50,6 +51,7 @@ impl From<u8> for OpCode {
             17  => OP_SPOP,
             18  => OP_PRINT,
             19  => OP_FNEGATE,
+            20  => OP_DEFINE_GLOBAL,
             _ => OP_UNKNOWN,
         }
     }

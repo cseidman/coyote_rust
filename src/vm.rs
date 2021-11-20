@@ -6,6 +6,7 @@ use crate::compiler::{Compiler};
 
 use OpCode::* ;
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::io::{stderr, Write} ;
 
@@ -19,7 +20,8 @@ pub struct VM {
     chunk: Chunk,
     ip: usize,
     stack: [u64;8000],
-    stackTop: usize
+    stackTop: usize,
+    globals: HashMap<String, u64>
 }
 
 impl VM {
@@ -29,7 +31,8 @@ impl VM {
             chunk: Chunk::new(),
             ip: 0,
             stack:[0;8000],
-            stackTop: 0
+            stackTop: 0,
+            globals: HashMap::new()
         }
     }
 
@@ -85,7 +88,6 @@ impl VM {
         let instruction = self.chunk.code[self.ip-1] ;
         let line = self.chunk.lines[self.ip-1];
         let _ = stderr().write_fmt(format_args!("[line {}] in script\n", line));
-
     }
 
     pub fn run(&mut self) -> InterpretResult {
@@ -100,6 +102,16 @@ impl VM {
                 }
             };
         }
+
+        macro_rules! READ_STRING {
+            () => {
+                {
+                    let idx = READ_OPERAND!() ;
+                    self.chunk.strings.getValue(idx as usize)
+                }
+            };
+        }
+
 
         macro_rules! READ_BYTE {
             () => {
@@ -185,6 +197,11 @@ impl VM {
                 OP_PRINT => {
                     let data = self.pop() ;
                     println!("{}", data) ;
+                },
+                OP_DEFINE_GLOBAL=> {
+                    let name = READ_STRING!().clone() ;
+                    let value = self.pop().clone() ;
+                    self.globals.insert(name, value) ;
                 }
                 _ => {return INTERPRET_OK}
             }

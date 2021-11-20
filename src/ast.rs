@@ -18,6 +18,7 @@ pub enum DataType {
     Float,
     String,
     Bool,
+    Nil,
     None
 }
 impl DataType {
@@ -33,12 +34,32 @@ impl DataType {
 }
 
 #[derive(Clone)]
-pub struct Ast {
-    pub tokenType: TokenType,
-    pub opType: OpType,
-    pub label: String,
-    pub value: u64,
-    pub dataType: DataType
+pub enum Ast {
+    literal {
+        tokenType: TokenType,
+        label: String,
+        value: u64,
+        dataType: DataType
+    },
+    binop {
+        tokenType: TokenType,
+        label: String,
+        operator: Operator
+    },
+    unaryOp {
+        tokenType: TokenType,
+        label: String,
+        operator: Operator
+    },
+    varDecl {
+        tokenType: TokenType,
+        varname: String ,
+        location: usize,
+        scope: Scope
+    },
+    statement {
+        tokenType: TokenType
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +80,10 @@ impl Operator {
     }
 }
 
+pub enum Scope {
+    Global,
+    Local
+}
 
 #[derive(Clone)]
 pub enum Node {
@@ -73,6 +98,11 @@ pub enum Node {
         rhs: Box<Node>,
     },
     Statement(Ast),
+    VarDecl {
+        name: String ,
+        location: usize,
+        scope: Scope
+    },
     Root {
         children: Box<Vec<Node>>
     }
@@ -109,7 +139,7 @@ pub fn walkTree(node: Node, level: usize) -> DataType {
         Node::Statement(x) => {
             match x.tokenType {
                 TOKEN_VAR => {
-
+                    println!("OP_DEFINE_GLOBAL") ;
                 },
                 TOKEN_PRINT => {
                     println!("OP_PRINT") ;

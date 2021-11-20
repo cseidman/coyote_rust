@@ -377,7 +377,7 @@ impl Scanner {
             "super"     => TOKEN_SUPER,
             "this"      => TOKEN_THIS,
             "true"      => TOKEN_TRUE,
-            "var"       => TOKEN_VAR,
+            "let"       => TOKEN_VAR,
             "while"     => TOKEN_WHILE,
              _          => TOKEN_IDENTIFIER ,
         }

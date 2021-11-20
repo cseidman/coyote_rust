@@ -120,25 +120,8 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn astPush(&mut self, tokenType: TokenType, opType: OpType, label: &str, value: u64 ) {
-
-        let dataType = match  tokenType {
-            TOKEN_INTEGER => DataType::Integer,
-            TOKEN_FLOAT => DataType::Float,
-            TOKEN_STRING => DataType::String,
-            TOKEN_BOOL => DataType::Bool,
-            _ => DataType::None
-        } ;
-
-        self.ast.push(
-            Ast {
-                tokenType,
-                opType,
-                dataType,
-                label: label.to_string(),
-                value
-            }
-        );
+    fn astPush(&mut self, ast: Ast ) {
+        self.ast.push(ast);
     }
 
     pub fn error(&mut self, message: &str) {
@@ -256,9 +239,24 @@ impl<'a> Compiler<'a> {
 
     fn literal(&mut self) {
         match self.parser.previous().tokenType {
-            TOKEN_FALSE => self.astPush(TOKEN_FALSE, OpType::Literal, "False", 0),
-            TOKEN_TRUE => self.astPush(TOKEN_TRUE, OpType::Literal, "True", 1),
-            _ => self.astPush(TOKEN_NIL, OpType::Literal, "Nil", 0)
+            TOKEN_FALSE => self.astPush(Ast::literal {
+                tokenType: TokenType::TOKEN_FALSE,
+                label: "False".to_string(),
+                value: 0,
+                dataType: DataType::Bool
+            }),
+            TOKEN_TRUE => self.astPush(Ast::literal {
+                tokenType: TokenType::TOKEN_TRUE,
+                label: "True".to_string(),
+                value: 1,
+                dataType: DataType::Bool
+            }),
+            _ => self.astPush(Ast::literal {
+                tokenType: TokenType::TOKEN_NIL,
+                label: "Nil".to_string(),
+                value: 0,
+                dataType: DataType::Bool
+            })
         }
     }
 
@@ -266,19 +264,34 @@ impl<'a> Compiler<'a> {
         let strVal = self.parser.previous().name ;
         let pointer = addStringConstant(&mut self.chunk, strVal.clone()) as u64;
         let s = strVal.as_str();
-        self.astPush(TokenType::TOKEN_STRING, OpType::Literal, s, pointer as u64);
+        self.astPush(Ast::literal {
+            tokenType: TokenType::TOKEN_STRING,
+            label: strVal,
+            value: pointer as u64,
+            dataType: DataType::String
+        });
     }
 
     fn integer(&mut self) {
         let strVal = self.parser.previous().name ;
         let integer = i64::from_str(strVal.as_str()).unwrap() ;
-        self.astPush(TokenType::TOKEN_INTEGER, OpType::Literal, strVal.as_str(), integer as u64);
+        self.astPush(Ast::literal {
+            tokenType: TokenType::TOKEN_INTEGER,
+            label: strVal,
+            value: integer as u64,
+            dataType: DataType::Integer
+        });
     }
 
     fn float(&mut self) {
         let strVal = self.parser.previous().name ;
         let float = f64::from_str(strVal.as_str()).unwrap() ;
-        self.astPush(TokenType::TOKEN_FLOAT, OpType::Literal,strVal.as_str(), float as u64);
+        self.astPush(Ast::literal {
+            tokenType: TokenType::TOKEN_FLOAT,
+            label: strVal,
+            value: float as u64,
+            dataType: DataType::Float
+        });
     }
 
      fn grouping(&mut self) {
@@ -290,11 +303,17 @@ impl<'a> Compiler<'a> {
         let operatorType = self.parser.previous().tokenType ;
         self.parsePrecedence(PREC_UNARY);
 
-        match operatorType {
-            TOKEN_BANG  => self.astPush(TokenType::TOKEN_BANG, OpType::Unary,"!", 0),
-            TOKEN_MINUS => self.astPush(TokenType::TOKEN_MINUS, OpType::Unary,"-", 0),
+        let operator = match operatorType {
+            TOKEN_PLUS  =>  Operator::Plus,
+            TOKEN_MINUS =>  Operator::Minus,
             _ => {}
-        }
+        };
+
+        self.astPush(Ast::unaryOp {
+            tokenType: operatorType,
+            label: token.name,
+            operator
+        });
     }
 
     fn binary(&mut self) {
@@ -304,7 +323,19 @@ impl<'a> Compiler<'a> {
         let prec = rule.prec + 1 ;
         self.parsePrecedence(prec) ;
 
-        self.astPush(operatorType, OpType::Binop,token.name.as_str(), 0);
+        let operator = match operatorType {
+            TOKEN_PLUS => Operator::Plus,
+            TOKEN_MINUS => Operator::Minus,
+            TOKEN_STAR => Operator::Mul,
+            TOKEN_SLASH => Operator::Div,
+            _ => {}
+        } ;
+
+        self.astPush(Ast::binop {
+            tokenType: operatorType,
+            label: token.name,
+            operator
+        });
 
     }
 
@@ -372,7 +403,9 @@ impl<'a> Compiler<'a> {
     fn printStatement(&mut self) {
         self.expression();
         self.consume(TOKEN_SEMICOLON, "Expect ';' after value.");
-        self.astPush(TOKEN_PRINT, OpType::Statement, "print", 0);
+        self.astPush(Ast::statement {
+            tokenType: TokenType::TOKEN_PRINT
+        });
     }
 
     fn statement(&mut self) {
@@ -381,8 +414,44 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn varDeclaration(&mut self) {
+
+        let location = self.parseVariable("Expect variable name") as usize;
+        let varName = self.parser.previous().name ;
+
+        if self.t_match(TOKEN_EQUAL) {
+            self.expression() ;
+        } else {
+            self.astPush(Ast::literal {
+                tokenType: TokenType::TOKEN_NIL
+                label: "nil".to_string(),
+                value: 0,
+                dataType: DataType::Nil
+            })
+        }
+        self.consume(TOKEN_SEMICOLON,"Expect ';' after variable declaration");
+
+        self.astPush(Ast::varDecl {
+            tokenType: TokenType::TOKEN_VAR,
+            varname: varName,
+            location,
+            scope: Scope::Global
+        })
+
+    }
+
+    fn parseVariable(&mut self, errorMessage: &'static str) -> u64 {
+        self.consume(TOKEN_IDENTIFIER, errorMessage) ;
+        let strVal = self.parser.previous().name ;
+        addStringConstant(&mut self.chunk, strVal.clone()) as u64
+    }
+
     fn declaration(&mut self) {
-        self.statement() ;
+        if self.t_match(TOKEN_VAR) {
+            self.varDeclaration() ;
+        } else {
+            self.statement();
+        }
     }
 
     pub fn compile(&mut self) -> bool {
