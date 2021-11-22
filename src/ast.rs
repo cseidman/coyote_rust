@@ -52,7 +52,6 @@ pub enum Ast {
         operator: Operator
     },
     varDecl {
-        tokenType: TokenType,
         varname: String ,
         location: usize,
         scope: Scope
@@ -79,7 +78,7 @@ impl Operator {
         }.to_string()
     }
 }
-
+#[derive(Clone)]
 pub enum Scope {
     Global,
     Local
@@ -87,7 +86,11 @@ pub enum Scope {
 
 #[derive(Clone)]
 pub enum Node {
-    Value(Ast),
+    Value {
+        label: String,
+        value: u64,
+        dataType: DataType
+    },
     UnaryExpr {
         op: Operator,
         child: Box<Node>,
@@ -97,14 +100,16 @@ pub enum Node {
         lhs: Box<Node>,
         rhs: Box<Node>,
     },
-    Statement(Ast),
+    Statement {
+        tokenType: TokenType
+    },
     VarDecl {
         name: String ,
         location: usize,
         scope: Scope
     },
     Root {
-        children: Box<Vec<Node>>
+        children: Vec<Node>
     }
 }
 
@@ -113,14 +118,14 @@ pub fn walkTree(node: Node, level: usize) -> DataType {
 
     match node {
         Node::Root {children: nodes} => {
-            for n in *nodes {
+            for n in nodes {
                 walkTree(n, level) ;
             }
             DataType::None
         }
-        Node::Value(x) => {
-            println!("OP_{}PUSH {}",x.dataType.emit(), x.value) ;
-            x.dataType
+        Node::Value{ label, value, dataType} => {
+            println!("OP_{}PUSH {}",dataType.emit(), value) ;
+            dataType
         },
         Node::BinaryExpr{op,lhs,rhs} => {
             let l_type = walkTree(*lhs,level+2) ;
@@ -136,11 +141,10 @@ pub fn walkTree(node: Node, level: usize) -> DataType {
             }
             dataType
         },
-        Node::Statement(x) => {
-            match x.tokenType {
-                TOKEN_VAR => {
-                    println!("OP_DEFINE_GLOBAL") ;
-                },
+        Node::Statement{
+            tokenType
+        } => {
+            match tokenType {
                 TOKEN_PRINT => {
                     println!("OP_PRINT") ;
                 }
@@ -150,7 +154,15 @@ pub fn walkTree(node: Node, level: usize) -> DataType {
                 _ => {}
             }
             DataType::None
-        }
+        },
+        Node::VarDecl {
+            name,
+            location,
+            scope
+        } => {
+            println!("OP_DEFINE_GLOBAL {}", location);
+            DataType::None
+        },
         _ => {DataType::None}
     }
 }
@@ -161,59 +173,60 @@ pub fn buildTree(ast: &[Ast]) -> Node {
 
     let mut nodes = Vec::<Node>::new() ;
 
+
     let len = ast.len() ;
-    for i in ast {
-        match i.opType {
-            OpType::Literal => {
-                nodes.push(Node::Value(i.clone()))
-            },
-            OpType::Binop => {
-                let op = match i.tokenType {
-                    TOKEN_PLUS => Operator::Plus,
-                    TOKEN_MINUS => Operator::Minus,
-                    TOKEN_STAR => Operator::Mul,
-                    TOKEN_SLASH => Operator::Div,
-                    _ => Operator::Plus
+    for i in 0 .. len {
+        let e = ast[i].clone();
+        match e {
+            Ast::literal {tokenType, label, value, dataType } => {
+                let node = Node::Value {
+                    label,
+                    value,
+                    dataType
                 };
+                nodes.push(node) ;
+            },
+            Ast::binop { tokenType, label, operator } => {
 
                 let node = Node::BinaryExpr {
-                    op,
+                    op: operator,
                     rhs: Box::new(nodes.pop().unwrap()),
                     lhs: Box::new(nodes.pop().unwrap())
                 };
                 nodes.push(node);
             },
-            OpType::Unary => {
-                let op = match i.tokenType {
-                    TOKEN_PLUS => Operator::Plus,
-                    TOKEN_MINUS => Operator::Minus,
-                    _ => Operator::Plus
-                };
+            Ast::unaryOp {tokenType, label, operator} => {
+
                 let node = Node::UnaryExpr {
-                    op,
+                    op: operator,
                     child: Box::new(nodes.pop().unwrap()),
                 };
                 nodes.push(node);
             },
-            OpType::Statement => {
-                let node = Node::Statement (
-                    Ast {
-                        tokenType: i.tokenType,
-                        opType: i.opType,
-                        label: i.label.to_string(),
-                        value: 0,
-                        dataType: i.dataType
-                    }
-                );
+            Ast::statement {tokenType} => {
+                let node = Node::Statement {
+                    tokenType
+                };
+                nodes.push(node) ;
+            },
+            Ast::varDecl {
+                varname,
+                location,
+                scope
+            } => {
+                let node = Node::VarDecl {
+                    name: varname,
+                    location,
+                    scope
+                }  ;
                 nodes.push(node) ;
             }
-            _ => {}
+
         }
 
     }
     // Set the root node
-    let rootNode = Node::Root { children: Box::new(nodes)};
-    rootNode
+    Node::Root { children: nodes}
 
 
 }

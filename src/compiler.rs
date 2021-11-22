@@ -261,12 +261,12 @@ impl<'a> Compiler<'a> {
     }
 
     fn text(&mut self) {
-        let strVal = self.parser.previous().name ;
-        let pointer = addStringConstant(&mut self.chunk, strVal.clone()) as u64;
+        let strVal = &self.parser.previous().name ;
+        let pointer = addStringConstant(self.chunk, strVal.to_string()) as u64;
         let s = strVal.as_str();
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_STRING,
-            label: strVal,
+            label: strVal.to_string(),
             value: pointer as u64,
             dataType: DataType::String
         });
@@ -300,13 +300,15 @@ impl<'a> Compiler<'a> {
     }
 
     fn unary(&mut self) {
-        let operatorType = self.parser.previous().tokenType ;
+        let token = self.parser.previous() ;
+        let operatorType = token.tokenType ;
         self.parsePrecedence(PREC_UNARY);
 
         let operator = match operatorType {
             TOKEN_PLUS  =>  Operator::Plus,
             TOKEN_MINUS =>  Operator::Minus,
-            _ => {}
+            // TODO: Panic here
+            _ => {Operator::Plus}
         };
 
         self.astPush(Ast::unaryOp {
@@ -328,7 +330,8 @@ impl<'a> Compiler<'a> {
             TOKEN_MINUS => Operator::Minus,
             TOKEN_STAR => Operator::Mul,
             TOKEN_SLASH => Operator::Div,
-            _ => {}
+            // TODO: Panic here
+            _ => Operator::Plus
         } ;
 
         self.astPush(Ast::binop {
@@ -411,7 +414,9 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.t_match(TOKEN_PRINT) {
             self.printStatement();
+            return ;
         }
+        self.expression() ;
     }
 
     fn varDeclaration(&mut self) {
@@ -423,7 +428,7 @@ impl<'a> Compiler<'a> {
             self.expression() ;
         } else {
             self.astPush(Ast::literal {
-                tokenType: TokenType::TOKEN_NIL
+                tokenType: TokenType::TOKEN_NIL,
                 label: "nil".to_string(),
                 value: 0,
                 dataType: DataType::Nil
@@ -432,7 +437,6 @@ impl<'a> Compiler<'a> {
         self.consume(TOKEN_SEMICOLON,"Expect ';' after variable declaration");
 
         self.astPush(Ast::varDecl {
-            tokenType: TokenType::TOKEN_VAR,
             varname: varName,
             location,
             scope: Scope::Global
@@ -443,7 +447,7 @@ impl<'a> Compiler<'a> {
     fn parseVariable(&mut self, errorMessage: &'static str) -> u64 {
         self.consume(TOKEN_IDENTIFIER, errorMessage) ;
         let strVal = self.parser.previous().name ;
-        addStringConstant(&mut self.chunk, strVal.clone()) as u64
+        addStringConstant(self.chunk, strVal) as u64
     }
 
     fn declaration(&mut self) {
@@ -466,9 +470,6 @@ impl<'a> Compiler<'a> {
 
         self.endCompiler() ;
 
-        for i in &self.ast {
-            println!("{}",i.label);
-        }
 
         let tree = buildTree(&self.ast) ;
         walkTree(tree, 1) ;

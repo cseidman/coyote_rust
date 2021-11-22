@@ -200,7 +200,7 @@ impl VM {
                 },
                 OP_DEFINE_GLOBAL=> {
                     let name = READ_STRING!().clone() ;
-                    let value = self.pop().clone() ;
+                    let value = self.pop() ;
                     self.globals.insert(name, value) ;
                 }
                 _ => {return INTERPRET_OK}
