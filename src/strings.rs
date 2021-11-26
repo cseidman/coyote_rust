@@ -20,7 +20,6 @@ impl StringPool {
         let slot = self.getFreeSlot() ;
         self.strings[slot] = Some(s) ;
         self.freeSlotCount-=1 ;
-        println!("Returning slot {}", slot) ;
         slot
     }
 
@@ -32,7 +31,6 @@ impl StringPool {
         // Increment the slot pointer to make it the top of
         // the free pointer stack
         let newPointer = self.strings.len()-1 ;
-        println!("Newpointer {}", newPointer) ;
         self.freeSlots.push(newPointer);
         self.freeSlotCount+=1 ;
     }
@@ -57,6 +55,16 @@ impl StringPool {
         self.slotPtr-=1 ;
         self.freeSlots[self.slotPtr] = slot ;
         self.freeSlotCount+=1 ;
+    }
+
+    pub fn getIndex(&self, s: String) -> usize {
+        let res = self.strings.binary_search(&Some(s)) ;
+        if let Ok(..) = res {
+            res.unwrap()
+        } else {
+            panic!("Variable not found");
+        }
+
     }
 
     pub fn getValue(&self, slot: usize) -> &String {

@@ -10,13 +10,16 @@ pub enum TokenType {
     TOKEN_COMMA, TOKEN_DOT, TOKEN_MINUS, TOKEN_PLUS,
     TOKEN_SEMICOLON, TOKEN_SLASH, TOKEN_STAR,
     TOKEN_COLON, TOKEN_DOUBLE_COLON,
+
     // One or two character tokens.
     TOKEN_BANG, TOKEN_BANG_EQUAL,
     TOKEN_EQUAL, TOKEN_EQUAL_EQUAL,
     TOKEN_GREATER, TOKEN_GREATER_EQUAL,
     TOKEN_LESS, TOKEN_LESS_EQUAL,
+
     // Literals.
-    TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_INTEGER, TOKEN_FLOAT, TOKEN_NIL,
+    TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_BOOL, TOKEN_NUMBER, TOKEN_INTEGER, TOKEN_FLOAT, TOKEN_NIL,
+
     // Keywords.
     TOKEN_AND, TOKEN_CLASS, TOKEN_ELSE, TOKEN_FALSE,
     TOKEN_FOR, TOKEN_FUN, TOKEN_IF, TOKEN_OR,
@@ -188,11 +191,11 @@ impl Scanner {
                 break;
             }
         }
-        //if isFloat {
-            self.makeToken(TOKEN_NUMBER)
-        //} else {
-        //    self.makeToken(TOKEN_NUMBER)
-        //}
+        if isFloat {
+            self.makeToken(TOKEN_FLOAT)
+        } else {
+            self.makeToken(TOKEN_INTEGER)
+        }
 
     }
 
@@ -374,7 +377,7 @@ impl Scanner {
             "super"     => TOKEN_SUPER,
             "this"      => TOKEN_THIS,
             "true"      => TOKEN_TRUE,
-            "var"       => TOKEN_VAR,
+            "let"       => TOKEN_VAR,
             "while"     => TOKEN_WHILE,
              _          => TOKEN_IDENTIFIER ,
         }
