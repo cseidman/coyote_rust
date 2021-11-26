@@ -5,6 +5,7 @@
 #![allow(unused_variables)]
 #![deny(rust_2018_idioms)]
 #![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::needless_range_loop, clippy::single_match)]
 
 use crate::chunk::{writeChunk, freeChunk, addConstant};
 use crate::chunk::OpCode::*;
@@ -17,6 +18,8 @@ mod vm;
 mod scanner;
 mod compiler;
 mod strings;
+mod common;
+mod ast;
 
 use std::fs ;
 use std::path::*;
@@ -72,6 +75,10 @@ pub fn Repl() {
 
         let _=stdout().flush();
         stdin().read_line(&mut line).unwrap();
+
+        if line == "\n" {
+            return;
+        }
 
         vm.interpret(line);
     }

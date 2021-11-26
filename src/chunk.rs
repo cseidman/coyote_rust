@@ -1,17 +1,18 @@
 
 use crate::chunk::OpCode::*;
-use crate::value::{ValueArray, writeValueArray, Value};
+use crate::value::{ValueArray, writeValueArray};
 use crate::strings::{StringPool};
+use std::borrow::Borrow;
 
 #[derive(Copy, Clone)]
 pub enum OpCode {
     OP_RETURN,
     OP_CONSTANT,
-    OP_ADD,
+    OP_IADD,
     OP_SUBTRACT,
     OP_MULTIPLY,
     OP_DIVIDE,
-    OP_NEGATE,
+    OP_INEGATE,
     OP_NIL,
     OP_TRUE,
     OP_FALSE,
@@ -19,6 +20,14 @@ pub enum OpCode {
     OP_EQUAL,
     OP_GREATER,
     OP_LESS,
+    OP_PUSH,
+    OP_IPOP,
+    OP_FPOP,
+    OP_SPOP,
+    OP_PRINT,
+    OP_FNEGATE,
+    OP_DEFINE_IGLOBAL,
+    OP_GET_IGLOBAL,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -26,11 +35,11 @@ impl From<u8> for OpCode {
         match orig {
             0   => OP_RETURN,
             1   => OP_CONSTANT,
-            2   => OP_ADD,
+            2   => OP_IADD,
             3   => OP_SUBTRACT,
             4   => OP_MULTIPLY,
             5   => OP_DIVIDE,
-            6   => OP_NEGATE,
+            6   => OP_INEGATE,
             7   => OP_NIL,
             8   => OP_TRUE,
             9   => OP_FALSE,
@@ -38,6 +47,14 @@ impl From<u8> for OpCode {
             11  => OP_EQUAL,
             12  => OP_GREATER,
             13  => OP_LESS,
+            14  => OP_PUSH,
+            15  => OP_IPOP,
+            16  => OP_FPOP,
+            17  => OP_SPOP,
+            18  => OP_PRINT,
+            19  => OP_FNEGATE,
+            20  => OP_DEFINE_IGLOBAL,
+            21  => OP_GET_IGLOBAL,
             _ => OP_UNKNOWN,
         }
     }
@@ -75,15 +92,21 @@ pub fn writeChunk(chunk: &mut Chunk, byte: u8, line: usize) {
     chunk.lines.push(line) ;
 }
 
-pub fn addConstant(chunk: &mut Chunk, value: Value) -> usize {
+pub fn writeU64Chunk(chunk: &mut Chunk, data: u64, line: usize) {
+    for b in u64::to_be_bytes(data) {
+        chunk.code.push(b);
+        chunk.lines.push(line) ;
+    }
+}
+
+pub fn addConstant(chunk: &mut Chunk, value: u64) -> usize {
     writeValueArray(&mut chunk.constants, value) ;
     chunk.constants.values.len()-1
 }
 
 pub fn addStringConstant(chunk: &mut Chunk, s: String) -> usize {
     let stringIndex = chunk.strings.store(s) ;
-    let stringVal = Value::Pointer(stringIndex as u64) ;
-    writeValueArray(&mut chunk.constants, stringVal) ;
+    writeValueArray(&mut chunk.constants, stringIndex as u64) ;
     chunk.constants.values.len()-1
 }
 
