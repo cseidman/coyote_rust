@@ -5,6 +5,7 @@
 #![allow(unused_variables)]
 #![deny(rust_2018_idioms)]
 #![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::needless_range_loop, clippy::single_match)]
 
 use crate::chunk::{writeChunk, freeChunk, addConstant};
 use crate::chunk::OpCode::*;

@@ -57,6 +57,16 @@ impl StringPool {
         self.freeSlotCount+=1 ;
     }
 
+    pub fn getIndex(&self, s: String) -> usize {
+        let res = self.strings.binary_search(&Some(s)) ;
+        if let Ok(..) = res {
+            res.unwrap()
+        } else {
+            panic!("Variable not found");
+        }
+
+    }
+
     pub fn getValue(&self, slot: usize) -> &String {
         self.strings[slot].as_ref().unwrap()
     }

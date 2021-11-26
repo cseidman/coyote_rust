@@ -198,10 +198,16 @@ impl VM {
                     let data = self.pop() ;
                     println!("{}", data) ;
                 },
-                OP_DEFINE_GLOBAL=> {
+                OP_DEFINE_IGLOBAL=> {
                     let name = READ_STRING!().clone() ;
                     let value = self.pop() ;
                     self.globals.insert(name, value) ;
+                },
+                OP_GET_IGLOBAL => {
+                    let name = READ_STRING!().clone() ;
+                    if let k = self.globals.get(&name).unwrap() {
+                        self.push(*k) ;
+                    }
                 }
                 _ => {return INTERPRET_OK}
             }

@@ -2,6 +2,7 @@
 use crate::chunk::OpCode::*;
 use crate::value::{ValueArray, writeValueArray};
 use crate::strings::{StringPool};
+use std::borrow::Borrow;
 
 #[derive(Copy, Clone)]
 pub enum OpCode {
@@ -25,7 +26,8 @@ pub enum OpCode {
     OP_SPOP,
     OP_PRINT,
     OP_FNEGATE,
-    OP_DEFINE_GLOBAL,
+    OP_DEFINE_IGLOBAL,
+    OP_GET_IGLOBAL,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -51,7 +53,8 @@ impl From<u8> for OpCode {
             17  => OP_SPOP,
             18  => OP_PRINT,
             19  => OP_FNEGATE,
-            20  => OP_DEFINE_GLOBAL,
+            20  => OP_DEFINE_IGLOBAL,
+            21  => OP_GET_IGLOBAL,
             _ => OP_UNKNOWN,
         }
     }

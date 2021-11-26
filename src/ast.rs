@@ -56,6 +56,11 @@ pub enum Ast {
         location: usize,
         scope: Scope
     },
+    namedVar {
+        varname: String ,
+        location: usize,
+        scope: Scope
+    },
     statement {
         tokenType: TokenType
     }
@@ -78,7 +83,7 @@ impl Operator {
         }.to_string()
     }
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Scope {
     Global,
     Local
@@ -108,6 +113,11 @@ pub enum Node {
         location: usize,
         scope: Scope
     },
+    namedVar {
+        name: String ,
+        location: usize,
+        scope: Scope
+    },
     Root {
         children: Vec<Node>
     }
@@ -124,7 +134,11 @@ pub fn walkTree(node: Node, level: usize) -> DataType {
             DataType::None
         }
         Node::Value{ label, value, dataType} => {
-            println!("OP_{}PUSH {}",dataType.emit(), value) ;
+            if dataType == DataType::Nil {
+                println!("OP_NIL");
+            } else {
+                println!("OP_{}PUSH {}", dataType.emit(), value);
+            }
             dataType
         },
         Node::BinaryExpr{op,lhs,rhs} => {
@@ -160,10 +174,25 @@ pub fn walkTree(node: Node, level: usize) -> DataType {
             location,
             scope
         } => {
-            println!("OP_DEFINE_GLOBAL {}", location);
+            if scope == Scope::Global {
+                println!("OP_DEFINE_GLOBAL {}", location);
+            } else {
+                println!("OP_DEFINE_LOCAL {}", location);
+            }
             DataType::None
         },
-        _ => {DataType::None}
+        Node::namedVar {
+            name,
+            location,
+            scope
+        } => {
+            if scope == Scope::Global {
+                println!("OP_GET_GLOBAL {}", location);
+            } else {
+                println!("OP_GET_LOCAL {}", location);
+            }
+            DataType::None
+        },
     }
 }
 
@@ -220,8 +249,19 @@ pub fn buildTree(ast: &[Ast]) -> Node {
                     scope
                 }  ;
                 nodes.push(node) ;
+            },
+            Ast::namedVar {
+                varname,
+                location,
+                scope
+            } => {
+                let node = Node::namedVar {
+                    name: varname,
+                    location,
+                    scope
+                }  ;
+                nodes.push(node) ;
             }
-
         }
 
     }

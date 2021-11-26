@@ -32,7 +32,8 @@ enum ExpFunctions {
     DOUBLE,
     GROUPING,
     LITERAL,
-    STRING
+    STRING,
+    VARIABLE
 }
 
 use ExpFunctions::* ;
@@ -286,6 +287,7 @@ impl<'a> Compiler<'a> {
     fn float(&mut self) {
         let strVal = self.parser.previous().name ;
         let float = f64::from_str(strVal.as_str()).unwrap() ;
+
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_FLOAT,
             label: strVal,
@@ -294,7 +296,7 @@ impl<'a> Compiler<'a> {
         });
     }
 
-     fn grouping(&mut self) {
+    fn grouping(&mut self) {
         self.expression();
         self.consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression") ;
     }
@@ -362,6 +364,7 @@ impl<'a> Compiler<'a> {
             | TOKEN_GREATER_EQUAL
             | TOKEN_LESS
             | TOKEN_LESS_EQUAL  => Rule::new(NONE, BINARY, PREC_COMPARISON),
+            | TOKEN_IDENTIFIER => Rule::new(VARIABLE, NONE, PREC_NONE),
             _                   => Rule::new(NONE, NONE, PREC_NONE )
         }
     }
@@ -375,6 +378,7 @@ impl<'a> Compiler<'a> {
             STRING => self.text(),
             INTEGER => self.integer(),
             FLOAT => self.float(),
+            VARIABLE => self.variable(),
             _ => {}
          }
     }
@@ -419,10 +423,29 @@ impl<'a> Compiler<'a> {
         self.expression() ;
     }
 
+    // *** Variable management **
+
+    fn namedVariable(&mut self) {
+        let varname = self.parser.previous().name ;
+        let location = self.chunk.strings.getIndex(varname.clone()) ;
+        let mut scope = Scope::Global ;
+
+        self.astPush(Ast::namedVar {
+            varname,
+            location,
+            scope: Scope::Global
+        })
+
+    }
+
+    fn variable(&mut self) {
+        self.namedVariable() ;
+    }
+
     fn varDeclaration(&mut self) {
 
         let location = self.parseVariable("Expect variable name") as usize;
-        let varName = self.parser.previous().name ;
+        let varname = self.parser.previous().name ;
 
         if self.t_match(TOKEN_EQUAL) {
             self.expression() ;
@@ -435,9 +458,8 @@ impl<'a> Compiler<'a> {
             })
         }
         self.consume(TOKEN_SEMICOLON,"Expect ';' after variable declaration");
-
         self.astPush(Ast::varDecl {
-            varname: varName,
+            varname,
             location,
             scope: Scope::Global
         })
