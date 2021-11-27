@@ -41,6 +41,10 @@ pub enum OpCode {
     OP_GET_BLOCAL,
     OP_DEFINE_SLOCAL,
     OP_GET_SLOCAL,
+    OP_FADD,
+    OP_FSUBTRACT,
+    OP_FMULTIPLY,
+    OP_FDIVIDE,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -82,6 +86,10 @@ impl From<u8> for OpCode {
             33 => OP_GET_BLOCAL,
             34 => OP_DEFINE_SLOCAL,
             35 => OP_GET_SLOCAL,
+            36 => OP_FADD,
+            37 => OP_FSUBTRACT,
+            38 => OP_FMULTIPLY,
+            39 => OP_FDIVIDE,
             _ => OP_UNKNOWN,
         }
     }
@@ -126,14 +134,21 @@ pub fn writeU64Chunk(chunk: &mut Chunk, data: u64, line: usize) {
     }
 }
 
-pub fn addConstant(chunk: &mut Chunk, value: u64) -> usize {
+pub fn writef64Chunk(chunk: &mut Chunk, data: f64, line: usize) {
+    for b in f64::to_be_bytes(data) {
+        chunk.code.push(b);
+        chunk.lines.push(line) ;
+    }
+}
+
+pub fn addConstant(chunk: &mut Chunk, value: f64) -> usize {
     writeValueArray(&mut chunk.constants, value) ;
     chunk.constants.values.len()-1
 }
 
 pub fn addStringConstant(chunk: &mut Chunk, s: String) -> usize {
     let stringIndex = chunk.strings.store(s) ;
-    writeValueArray(&mut chunk.constants, stringIndex as u64) ;
+    writeValueArray(&mut chunk.constants, stringIndex as f64) ;
     chunk.constants.values.len()-1
 }
 

@@ -8,12 +8,12 @@ use std::ops;
 use std::cmp ;
 use std::cmp::Ordering;
 
-pub fn printValue(number: &u64) {
-    print!("{}",&number) ;
+pub fn printValue(number: f64) {
+    print!("{}",number ) ;
 }
 
 pub struct ValueArray{
-    pub values: Vec<u64>
+    pub values: Vec<f64>
 }
 
 impl ValueArray {
@@ -24,6 +24,6 @@ impl ValueArray {
     }
 }
 
-pub fn writeValueArray(array: &mut ValueArray, value: u64) {
+pub fn writeValueArray(array: &mut ValueArray, value: f64) {
     array.values.push(value) ;
 }

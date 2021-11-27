@@ -1,7 +1,8 @@
 use crate::scanner::{TokenType} ;
 use TokenType::* ;
-use crate::chunk::{Chunk, writeChunk, OpCode, writeU64Chunk};
+use crate::chunk::{Chunk, writeChunk, OpCode, writef64Chunk};
 use crate::chunk::OpCode::*;
+use crate::compiler::* ;
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum OpType {
@@ -40,7 +41,7 @@ pub enum Ast {
     literal {
         tokenType: TokenType,
         label: String,
-        value: u64,
+        value: f64,
         dataType: DataType
     },
     binop {
@@ -65,7 +66,9 @@ pub enum Ast {
         scope: Scope,
         datatype: DataType
     },
-    ret,
+    ret {
+        datatype: DataType
+    },
     statement {
         tokenType: TokenType
     }
@@ -98,7 +101,7 @@ pub enum Scope {
 pub enum Node {
     Value {
         label: String,
-        value: u64,
+        value: f64,
         dataType: DataType
     },
     UnaryExpr {
@@ -125,201 +128,217 @@ pub enum Node {
         scope: Scope,
         datatype: DataType
     },
-    Return,
+    Return {
+        datatype: DataType
+    },
     Root {
         children: Vec<Node>
     }
 }
 
 
-pub fn writeByte(chunk: &mut Chunk, byte: u8) {
-    writeChunk(chunk, byte, 0) ;
-}
 
-pub fn writeOp(chunk: &mut Chunk, op: OpCode) {
-    writeChunk(chunk, op as u8, 0) ;
-}
 
-fn writeU64(chunk: &mut Chunk, number: u64 ) {
-    writeU64Chunk(chunk, number, 0);
-}
-
-pub fn walkTree(node: Node, level: usize, chunk: &mut Chunk) -> DataType {
-
-    match node {
-        Node::Root {children: nodes} => {
-            for n in nodes {
-                walkTree(n, level, chunk) ;
-            }
-            DataType::None
-        }
-        Node::Value{ label, value, dataType} => {
-            if dataType == DataType::Nil {
-                println!("OP_NIL");
-                writeOp(chunk, OP_NIL);
-            } else {
-                println!("OP_PUSH {}",  value);
-                writeOp(chunk, OP_PUSH);
-                writeU64(chunk, value);
-            }
-            dataType
-        },
-        Node::BinaryExpr{op,lhs,rhs} => {
-            let l_type = walkTree(*lhs,level+2, chunk) ;
-            let r_type = walkTree(*rhs,level+2, chunk) ;
-            println!("{}{}",l_type.emit(),op.emit()) ;
-            l_type
-        },
-        Node::UnaryExpr{op,child} => {
-            let dataType = walkTree(*child,level+2, chunk);
-            match op {
-                Operator::Minus => println!("{}NEG",dataType.emit()) ,
-                _ => {}
-            }
-            dataType
-        },
-        Node::Statement{
-            tokenType
-        } => {
-            match tokenType {
-                TOKEN_PRINT => {
-                    println!("OP_PRINT") ;
-                }
-                TOKEN_START => {
-                    println!("START") ;
-                }
-                _ => {}
-            }
-            DataType::None
-        },
-        Node::VarDecl {
-            name,
-            location,
-            scope,
-            datatype
-        } => {
-            if scope == Scope::Global {
-                println!("OP_DEFINE_GLOBAL {}", location);
-                match datatype {
-                    DataType::Integer => writeOp(chunk, OP_DEFINE_IGLOBAL),
-                    DataType::Float => writeOp(chunk, OP_DEFINE_FGLOBAL),
-                    DataType::Bool => writeOp(chunk, OP_DEFINE_BGLOBAL),
-                    DataType::String => writeOp(chunk, OP_DEFINE_SGLOBAL),
-                    _ => {}
-                }
-
-            } else {
-                println!("OP_DEFINE_LOCAL {}", location);
-                match datatype {
-                    DataType::Integer => writeOp(chunk, OP_DEFINE_ILOCAL),
-                    DataType::Float => writeOp(chunk, OP_DEFINE_FLOCAL),
-                    DataType::Bool => writeOp(chunk, OP_DEFINE_BLOCAL),
-                    DataType::String => writeOp(chunk, OP_DEFINE_SLOCAL),
-                    _ => {}
-                }
-
-            }
-            DataType::None
-        },
-        Node::Return => {
-            writeOp(chunk,OP_RETURN) ;
-            DataType::None
-        }
-        Node::namedVar {
-            name,
-            location,
-            scope,
-            datatype,
-        } => {
-            if scope == Scope::Global {
-                println!("OP_GET_GLOBAL {}", location);
-            } else {
-                println!("OP_GET_LOCAL {}", location);
-            }
-            DataType::None
-        },
+impl<'a> Compiler<'a> {
+    pub fn walkTree(node: Node, level: usize) -> DataType {
+        macro_rules! writeOp {
+        ($byte:expr) => {
+            writeChunk(chunk, $byte as u8, 0)
+        };
     }
 
-}
+        macro_rules! writeByte {
+        ($byte:expr) => {
+            writeChunk(chunk, $byte, 0)
+        };
+    }
 
-pub fn buildTree(ast: &[Ast]) -> Node {
+        macro_rules! writef64 {
+        ($value:expr) => {
+            writef64Chunk(chunk, $value, 0);
+        };
+    }
 
-    println!("** Tree **") ;
-
-    let mut nodes = Vec::<Node>::new() ;
-
-
-    let len = ast.len() ;
-    for i in 0 .. len {
-        let e = ast[i].clone();
-        match e {
-            Ast::literal {tokenType, label, value, dataType } => {
-                let node = Node::Value {
-                    label,
-                    value,
-                    dataType
-                };
-                nodes.push(node) ;
+        match node {
+            Node::Root { children: nodes } => {
+                for n in nodes {
+                    walkTree(n, level, chunk);
+                }
+                DataType::None
+            }
+            Node::Value { label, value, dataType } => {
+                if dataType == DataType::Nil {
+                    println!("OP_NIL");
+                    writeOp!(OP_NIL);
+                } else {
+                    println!("OP_PUSH {}", value);
+                    writeOp!(OP_PUSH);
+                    writef64!(value);
+                }
+                dataType
             },
-            Ast::binop { tokenType, label, operator } => {
-
-                let node = Node::BinaryExpr {
-                    op: operator,
-                    rhs: Box::new(nodes.pop().unwrap()),
-                    lhs: Box::new(nodes.pop().unwrap())
-                };
-                nodes.push(node);
+            Node::BinaryExpr { op, lhs, rhs } => {
+                let l_type = walkTree(*lhs, level + 2);
+                let r_type = walkTree(*rhs, level + 2);
+                println!("{}{}", l_type.emit(), op.emit());
+                match format!("{}{}", l_type.emit(), op.emit()).as_str() {
+                    "IADD" => writeOp!(OP_IADD),
+                    "ISUB" => writeOp!(OP_ISUBTRACT),
+                    "IMUL" => writeOp!(OP_IMULTIPLY),
+                    "IDIV" => writeOp!(OP_IDIVIDE),
+                    "FADD" => writeOp!(OP_FADD),
+                    "FSUB" => writeOp!(OP_FSUBTRACT),
+                    "FMUL" => writeOp!(OP_FMULTIPLY),
+                    "FDIV" => writeOp!(OP_FDIVIDE),
+                    _ => {
+                        // TODO make an error
+                    }
+                }
+                l_type
             },
-            Ast::unaryOp {tokenType, label, operator} => {
-
-                let node = Node::UnaryExpr {
-                    op: operator,
-                    child: Box::new(nodes.pop().unwrap()),
-                };
-                nodes.push(node);
+            Node::UnaryExpr { op, child } => {
+                let dataType = walkTree(*child, level + 2, chunk);
+                match op {
+                    Operator::Minus => println!("{}NEG", dataType.emit()),
+                    _ => {}
+                }
+                dataType
             },
-            Ast::statement {tokenType} => {
-                let node = Node::Statement {
-                    tokenType
-                };
-                nodes.push(node) ;
+            Node::Statement {
+                tokenType
+            } => {
+                match tokenType {
+                    TOKEN_PRINT => {
+                        println!("OP_PRINT");
+                    }
+                    TOKEN_START => {
+                        println!("START");
+                    }
+                    _ => {}
+                }
+                DataType::None
             },
-            Ast::varDecl {
-                varname,
+            Node::VarDecl {
+                name,
                 location,
                 scope,
                 datatype
             } => {
-                let node = Node::VarDecl {
-                    name: varname,
-                    location,
-                    scope,
-                    datatype
-                }  ;
-                nodes.push(node) ;
+                if scope == Scope::Global {
+                    println!("OP_DEFINE_GLOBAL {}", location);
+                    match datatype {
+                        DataType::Integer => writeOp!(OP_DEFINE_IGLOBAL),
+                        DataType::Float => writeOp!(OP_DEFINE_FGLOBAL),
+                        DataType::Bool => writeOp!(OP_DEFINE_BGLOBAL),
+                        DataType::String => writeOp!(OP_DEFINE_SGLOBAL),
+                        _ => {}
+                    }
+                } else {
+                    println!("OP_DEFINE_LOCAL {}", location);
+                    match datatype {
+                        DataType::Integer => writeOp!(OP_DEFINE_ILOCAL),
+                        DataType::Float => writeOp!(OP_DEFINE_FLOCAL),
+                        DataType::Bool => writeOp!(OP_DEFINE_BLOCAL),
+                        DataType::String => writeOp!(OP_DEFINE_SLOCAL),
+                        _ => {}
+                    }
+                }
+                DataType::None
             },
-            Ast::ret => {
-              nodes.push(Node::Return) ;
+            Node::Return { datatype } => {
+                writeOp!(OP_RETURN);
+                datatype
             },
-            Ast::namedVar {
-                varname,
+            Node::namedVar {
+                name,
                 location,
                 scope,
-                datatype
+                datatype,
             } => {
-                let node = Node::namedVar {
-                    name: varname,
+                if scope == Scope::Global {
+                    println!("OP_GET_GLOBAL {}", location);
+                } else {
+                    println!("OP_GET_LOCAL {}", location);
+                }
+                DataType::None
+            },
+        }
+    }
+
+    pub fn buildTree(ast: &[Ast]) -> Node {
+        println!("** Tree **");
+
+        let mut nodes = Vec::<Node>::new();
+
+        let len = ast.len();
+        for i in 0..len {
+            let e = ast[i].clone();
+            match e {
+                Ast::literal { tokenType, label, value, dataType } => {
+                    let node = Node::Value {
+                        label,
+                        value,
+                        dataType
+                    };
+                    nodes.push(node);
+                },
+                Ast::binop { tokenType, label, operator } => {
+                    let node = Node::BinaryExpr {
+                        op: operator,
+                        rhs: Box::new(nodes.pop().unwrap()),
+                        lhs: Box::new(nodes.pop().unwrap())
+                    };
+                    nodes.push(node);
+                },
+                Ast::unaryOp { tokenType, label, operator } => {
+                    let node = Node::UnaryExpr {
+                        op: operator,
+                        child: Box::new(nodes.pop().unwrap()),
+                    };
+                    nodes.push(node);
+                },
+                Ast::statement { tokenType } => {
+                    let node = Node::Statement {
+                        tokenType
+                    };
+                    nodes.push(node);
+                },
+                Ast::varDecl {
+                    varname,
                     location,
                     scope,
                     datatype
-                }  ;
-                nodes.push(node) ;
+                } => {
+                    let node = Node::VarDecl {
+                        name: varname,
+                        location,
+                        scope,
+                        datatype
+                    };
+                    nodes.push(node);
+                },
+                Ast::ret { datatype } => {
+                    nodes.push(Node::Return {
+                        datatype
+                    });
+                },
+                Ast::namedVar {
+                    varname,
+                    location,
+                    scope,
+                    datatype
+                } => {
+                    let node = Node::namedVar {
+                        name: varname,
+                        location,
+                        scope,
+                        datatype
+                    };
+                    nodes.push(node);
+                }
             }
         }
-
+        // Set the root node
+        Node::Root { children: nodes }
     }
-    // Set the root node
-    Node::Root { children: nodes}
-
-
 }

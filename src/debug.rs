@@ -29,7 +29,8 @@ fn stringInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
 fn constantInstruction(name: &str, chunk: &Chunk, offset: usize) -> usize {
     let constant = chunk.code[offset] ;
     print!("{:16} {} '", name, constant);
-    printValue(&chunk.constants.values[constant as usize]) ;
+    let val = chunk.constants.values[constant as usize] ;
+    printValue(val) ;
     println!("'") ;
     offset +1
 }
@@ -53,6 +54,10 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         OpCode::OP_ISUBTRACT => simpleInstruction("OP_ISUBTRACT", offset),
         OpCode::OP_IMULTIPLY => simpleInstruction("OP_IMULTIPLY", offset),
         OpCode::OP_IDIVIDE => simpleInstruction("OP_IDIVIDE", offset),
+        OpCode::OP_FADD => simpleInstruction("OP_FADD", offset),
+        OpCode::OP_FSUBTRACT => simpleInstruction("OP_FSUBTRACT", offset),
+        OpCode::OP_FMULTIPLY => simpleInstruction("OP_FMULTIPLY", offset),
+        OpCode::OP_FDIVIDE => simpleInstruction("OP_FDIVIDE", offset),
         OpCode::OP_NOT => simpleInstruction("OP_NOT", offset),
         OpCode::OP_INEGATE => simpleInstruction("OP_INEGATE", offset),
         OpCode::OP_CONSTANT => constantInstruction("OP_CONSTANT", chunk, offset),

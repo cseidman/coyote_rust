@@ -108,6 +108,7 @@ pub struct Compiler<'a>  {
     scanner: Scanner ,
     parser: Parser,
     ast: Vec<Ast>
+
 }
 
 impl<'a> Compiler<'a> {
@@ -213,7 +214,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn emitReturn(&mut self) {
-        self.astPush(Ast::ret) ;
+        self.astPush(Ast::ret {
+            datatype: DataType::None
+        }) ;
     }
 
     fn emitConstant(&mut self, value: u64) {
@@ -222,7 +225,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn makeConstant(&mut self, value: String) -> usize {
-        let index = addConstant(currentChunk!(self), 0) ;
+        let index = addConstant(currentChunk!(self), 0.0) ;
         if index > u8::MAX as usize {
             self.error("Too many constants in one chunk") ;
             return 0 ;
@@ -243,19 +246,19 @@ impl<'a> Compiler<'a> {
             TOKEN_FALSE => self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_FALSE,
                 label: "False".to_string(),
-                value: 0,
+                value: 0.0,
                 dataType: DataType::Bool
             }),
             TOKEN_TRUE => self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_TRUE,
                 label: "True".to_string(),
-                value: 1,
+                value: 1.0,
                 dataType: DataType::Bool
             }),
             _ => self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_NIL,
                 label: "Nil".to_string(),
-                value: 0,
+                value: 0.0,
                 dataType: DataType::Bool
             })
         }
@@ -263,23 +266,23 @@ impl<'a> Compiler<'a> {
 
     fn text(&mut self) {
         let strVal = &self.parser.previous().name ;
-        let pointer = addStringConstant(self.chunk, strVal.to_string()) as u64;
+        let pointer = addStringConstant(self.chunk, strVal.to_string()) as f64;
         let s = strVal.as_str();
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_STRING,
             label: strVal.to_string(),
-            value: pointer as u64,
+            value: pointer ,
             dataType: DataType::String
         });
     }
 
     fn integer(&mut self) {
         let strVal = self.parser.previous().name ;
-        let integer = i64::from_str(strVal.as_str()).unwrap() ;
+        let integer = f64::from_str(strVal.as_str()).unwrap() ;
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_INTEGER,
             label: strVal,
-            value: integer as u64,
+            value: integer ,
             dataType: DataType::Integer
         });
     }
@@ -291,7 +294,7 @@ impl<'a> Compiler<'a> {
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_FLOAT,
             label: strVal,
-            value: float as u64,
+            value: float ,
             dataType: DataType::Float
         });
     }
@@ -388,7 +391,6 @@ impl<'a> Compiler<'a> {
         let token_type = self.parser.previous().tokenType ;
         let prefixRule = self.getRule(token_type).prefix ;
         if prefixRule == NONE {
-            self.error("Expect expression") ;
             return ;
         }
         self.execExpression(prefixRule) ;
@@ -453,7 +455,7 @@ impl<'a> Compiler<'a> {
             self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_NIL,
                 label: "nil".to_string(),
-                value: 0,
+                value: 0.0,
                 dataType: DataType::Nil
             })
         }

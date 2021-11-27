@@ -131,10 +131,6 @@ impl Scanner {
         }
     }
 
-    //pub fn StartToken(&mut self) -> Token {
-    //     self.makeToken(TOKEN_START)
-    //}
-
     fn errorToken(&mut self, message: &'static str) -> Token {
          Token {
             tokenType: TOKEN_ERROR,
@@ -162,33 +158,26 @@ impl Scanner {
 
     fn number(&mut self) -> Token {
         let mut isFloat  = false ;
-        loop {
-
-            let mut selfPeek = self.peek() ;
-            let mut isDigit  = self.isDigit(selfPeek) ;
-
-            if isDigit {
+        loop  {
+            let selfPeek= self.peek() ;
+            if self.isDigit(selfPeek) {
                 self.advance();
-
-                // If it's a float ..
-                selfPeek = self.peek() ;
-                isDigit = self.isDigit(selfPeek) ;
-                if selfPeek == '.' && isDigit {
-                    // Consume the ".".
-                    isFloat = true ;
-                    self.advance();
-                    loop {
-                        selfPeek = self.peek() ;
-                        isDigit = self.isDigit(selfPeek) ;
-                        if isDigit {
-                            self.advance();
-                        } else {
-                            break;
-                        }
-                    }
-                }
             } else {
-                break;
+                break ;
+            }
+        }
+
+        let peekNext = self.peekNext() ;
+        if self.peek() == '.' && self.isDigit(peekNext) {
+            isFloat = true ;
+            self.advance();
+            loop  {
+                let selfPeek= self.peek() ;
+                if self.isDigit(selfPeek) {
+                    self.advance();
+                } else {
+                    break ;
+                }
             }
         }
         if isFloat {
@@ -260,7 +249,11 @@ impl Scanner {
     }
 
     pub fn peekNext(&mut self) -> char {
-       self.nextChar()
+        if self.isAtEnd() {
+            '\0'
+        } else {
+            self.nextChar()
+        }
     }
 
     pub fn advance(&mut self) -> char {
@@ -299,7 +292,7 @@ impl Scanner {
     }
 
     fn isAtEnd(&mut self) -> bool {
-        self.current >= self.code.len()
+        self.current >= self.code.len()-1
     }
 
     fn isAlpha(&mut self, c: char) -> bool {

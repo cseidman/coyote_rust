@@ -3,6 +3,7 @@ use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRE
 use crate::value::{printValue} ;
 use crate::debug::* ;
 use crate::compiler::{Compiler};
+use crate::common::{boolAsf64};
 
 use OpCode::* ;
 use std::borrow::Borrow;
@@ -19,9 +20,9 @@ pub enum InterpretResult {
 pub struct VM {
     chunk: Chunk,
     ip: usize,
-    stack: [u64;8000],
+    stack: [f64;8000],
     stackTop: usize,
-    globals: HashMap<String, u64>
+    globals: HashMap<String, f64>
 }
 
 impl VM {
@@ -30,23 +31,23 @@ impl VM {
         VM {
             chunk: Chunk::new(),
             ip: 0,
-            stack:[0;8000],
+            stack:[0.0;8000],
             stackTop: 0,
             globals: HashMap::new()
         }
     }
 
-    pub fn push(&mut self, value:u64) {
+    pub fn push(&mut self, value:f64) {
         self.stack[self.stackTop] = value;
         self.stackTop+=1 ;
     }
 
-    pub fn peek(&mut self, distance: usize) -> u64 {
+    pub fn peek(&mut self, distance: usize) -> f64 {
         let index = self.stackTop-1-distance ;
         self.stack[index]
     }
 
-    pub fn pop(&mut self) -> u64 {
+    pub fn pop(&mut self) -> f64 {
         self.stackTop-=1 ;
         self.stack[self.stackTop]
     }
@@ -75,7 +76,8 @@ impl VM {
         print!("          ");
         for slot in 0..self.stackTop {
             print!("[ ");
-            printValue(&self.stack[slot]);
+            let val = self.stack[slot] ;
+            printValue(val);
             print!(" ]");
         }
         println!();
@@ -97,7 +99,7 @@ impl VM {
                   let mut val:[u8;8] = Default::default();
                   val.copy_from_slice(&self.chunk.code[self.ip..(self.ip+8)]) ;
                   self.ip+=8;
-                  u64::from_be_bytes(val)
+                  f64::from_be_bytes(val)
                 }
             };
         }
@@ -127,7 +129,7 @@ impl VM {
                     let rt = self.pop() as $type ;
                     let lt = self.pop() as $type;
                     let val = lt $binop rt ;
-                    self.push(val as u64);
+                    self.push(val as f64);
                 }
             };
         }
@@ -138,7 +140,7 @@ impl VM {
                     let rt = self.pop() ;
                     let lt = self.pop() ;
                     let val = lt $binop rt ;
-                    self.push(val as u64);
+                    self.push(boolAsf64(val));
                 }
             };
         }
@@ -156,7 +158,7 @@ impl VM {
                 OP_CONSTANT => {
                     let constIndex = READ_BYTE!() as usize;
                     let constant = self.chunk.constants.values[constIndex] ;
-                    self.push(constant as u64) ;
+                    self.push(constant as f64) ;
                 },
                 OP_PUSH => {
                     let val = READ_OPERAND!() ;
@@ -166,32 +168,38 @@ impl VM {
                     let val = READ_OPERAND!() ;
                     self.push(val) ;
                 }
-                OP_NIL => { self.push(0)},
-                OP_TRUE => { self.push(1)},
-                OP_FALSE => { self.push(0)},
+                OP_NIL => { self.push(0.0)},
+                OP_TRUE => { self.push(1.0)},
+                OP_FALSE => { self.push(0.0)},
                 OP_EQUAL => {
                     let a = self.pop() ;
                     let b = self.pop() ;
-                    self.push((a==b) as u64);
+                    self.push(boolAsf64(a==b));
                 },
                 OP_GREATER => {CMPOP!(>)},
                 OP_LESS => {CMPOP!(<)},
+
                 OP_IADD => { BINOP!(+ ,i64)},
                 OP_ISUBTRACT => { BINOP!(- ,i64)},
                 OP_IMULTIPLY => { BINOP!(*, i64)},
                 OP_IDIVIDE => {BINOP!(/, i64)},
 
+                OP_FADD => { BINOP!(+ ,f64)},
+                OP_FSUBTRACT => { BINOP!(- ,f64)},
+                OP_FMULTIPLY => { BINOP!(*, f64)},
+                OP_FDIVIDE => {BINOP!(/, f64)},
+
                 OP_NOT => {
-                  let value = self.pop() ;
-                  self.push(!value) ;
+                  let value = self.pop() != 0.0;
+                  self.push(boolAsf64(value)) ;
                 },
                 OP_INEGATE => {
                     let value = -(self.pop() as i64);
-                    self.push(value as u64);
+                    self.push(value as f64);
                 },
                 OP_FNEGATE => {
-                    let value = -(self.pop() as f64);
-                    self.push(value as u64);
+                    let value = -self.pop();
+                    self.push(value);
                 }
                 OP_PRINT => {
                     let data = self.pop() ;

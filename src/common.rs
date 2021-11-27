@@ -4,6 +4,14 @@ pub fn BytesToU64(bytes: &[u8]) -> u64 {
     u64::from_be_bytes(val)
 }
 
+pub fn boolAsf64(b: bool) -> f64 {
+    if b {
+        1.0
+    } else {
+        0.0
+    }
+}
+
 #[cfg(test)]
 mod test {
 
