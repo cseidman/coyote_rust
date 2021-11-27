@@ -1,5 +1,7 @@
 use crate::scanner::{TokenType} ;
 use TokenType::* ;
+use crate::chunk::{Chunk, writeChunk, OpCode, writeU64Chunk};
+use crate::chunk::OpCode::*;
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum OpType {
@@ -54,13 +56,16 @@ pub enum Ast {
     varDecl {
         varname: String ,
         location: usize,
-        scope: Scope
+        scope: Scope,
+        datatype: DataType
     },
     namedVar {
         varname: String ,
         location: usize,
-        scope: Scope
+        scope: Scope,
+        datatype: DataType
     },
+    ret,
     statement {
         tokenType: TokenType
     }
@@ -111,44 +116,62 @@ pub enum Node {
     VarDecl {
         name: String ,
         location: usize,
-        scope: Scope
+        scope: Scope,
+        datatype: DataType
     },
     namedVar {
         name: String ,
         location: usize,
-        scope: Scope
+        scope: Scope,
+        datatype: DataType
     },
+    Return,
     Root {
         children: Vec<Node>
     }
 }
 
 
-pub fn walkTree(node: Node, level: usize) -> DataType {
+pub fn writeByte(chunk: &mut Chunk, byte: u8) {
+    writeChunk(chunk, byte, 0) ;
+}
+
+pub fn writeOp(chunk: &mut Chunk, op: OpCode) {
+    writeChunk(chunk, op as u8, 0) ;
+}
+
+fn writeU64(chunk: &mut Chunk, number: u64 ) {
+    writeU64Chunk(chunk, number, 0);
+}
+
+pub fn walkTree(node: Node, level: usize, chunk: &mut Chunk) -> DataType {
 
     match node {
         Node::Root {children: nodes} => {
             for n in nodes {
-                walkTree(n, level) ;
+                walkTree(n, level, chunk) ;
             }
             DataType::None
         }
         Node::Value{ label, value, dataType} => {
             if dataType == DataType::Nil {
                 println!("OP_NIL");
+                writeOp(chunk, OP_NIL);
             } else {
-                println!("OP_{}PUSH {}", dataType.emit(), value);
+                println!("OP_PUSH {}",  value);
+                writeOp(chunk, OP_PUSH);
+                writeU64(chunk, value);
             }
             dataType
         },
         Node::BinaryExpr{op,lhs,rhs} => {
-            let l_type = walkTree(*lhs,level+2) ;
-            let r_type = walkTree(*rhs,level+2) ;
+            let l_type = walkTree(*lhs,level+2, chunk) ;
+            let r_type = walkTree(*rhs,level+2, chunk) ;
             println!("{}{}",l_type.emit(),op.emit()) ;
             l_type
         },
         Node::UnaryExpr{op,child} => {
-            let dataType = walkTree(*child,level+2);
+            let dataType = walkTree(*child,level+2, chunk);
             match op {
                 Operator::Minus => println!("{}NEG",dataType.emit()) ,
                 _ => {}
@@ -172,19 +195,41 @@ pub fn walkTree(node: Node, level: usize) -> DataType {
         Node::VarDecl {
             name,
             location,
-            scope
+            scope,
+            datatype
         } => {
             if scope == Scope::Global {
                 println!("OP_DEFINE_GLOBAL {}", location);
+                match datatype {
+                    DataType::Integer => writeOp(chunk, OP_DEFINE_IGLOBAL),
+                    DataType::Float => writeOp(chunk, OP_DEFINE_FGLOBAL),
+                    DataType::Bool => writeOp(chunk, OP_DEFINE_BGLOBAL),
+                    DataType::String => writeOp(chunk, OP_DEFINE_SGLOBAL),
+                    _ => {}
+                }
+
             } else {
                 println!("OP_DEFINE_LOCAL {}", location);
+                match datatype {
+                    DataType::Integer => writeOp(chunk, OP_DEFINE_ILOCAL),
+                    DataType::Float => writeOp(chunk, OP_DEFINE_FLOCAL),
+                    DataType::Bool => writeOp(chunk, OP_DEFINE_BLOCAL),
+                    DataType::String => writeOp(chunk, OP_DEFINE_SLOCAL),
+                    _ => {}
+                }
+
             }
             DataType::None
         },
+        Node::Return => {
+            writeOp(chunk,OP_RETURN) ;
+            DataType::None
+        }
         Node::namedVar {
             name,
             location,
-            scope
+            scope,
+            datatype,
         } => {
             if scope == Scope::Global {
                 println!("OP_GET_GLOBAL {}", location);
@@ -194,6 +239,7 @@ pub fn walkTree(node: Node, level: usize) -> DataType {
             DataType::None
         },
     }
+
 }
 
 pub fn buildTree(ast: &[Ast]) -> Node {
@@ -241,24 +287,31 @@ pub fn buildTree(ast: &[Ast]) -> Node {
             Ast::varDecl {
                 varname,
                 location,
-                scope
+                scope,
+                datatype
             } => {
                 let node = Node::VarDecl {
                     name: varname,
                     location,
-                    scope
+                    scope,
+                    datatype
                 }  ;
                 nodes.push(node) ;
+            },
+            Ast::ret => {
+              nodes.push(Node::Return) ;
             },
             Ast::namedVar {
                 varname,
                 location,
-                scope
+                scope,
+                datatype
             } => {
                 let node = Node::namedVar {
                     name: varname,
                     location,
-                    scope
+                    scope,
+                    datatype
                 }  ;
                 nodes.push(node) ;
             }

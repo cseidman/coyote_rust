@@ -67,8 +67,7 @@ impl VM {
 
     pub fn interpret(&mut self, source: String) -> InterpretResult {
         self.Compile(source) ;
-        //self.run()
-        INTERPRET_OK
+        self.run()
     }
 
     pub fn debug(&self) {
@@ -178,9 +177,9 @@ impl VM {
                 OP_GREATER => {CMPOP!(>)},
                 OP_LESS => {CMPOP!(<)},
                 OP_IADD => { BINOP!(+ ,i64)},
-                OP_SUBTRACT => { BINOP!(- ,i64)},
-                OP_MULTIPLY => { BINOP!(*, i64)},
-                OP_DIVIDE => {BINOP!(/, i64)},
+                OP_ISUBTRACT => { BINOP!(- ,i64)},
+                OP_IMULTIPLY => { BINOP!(*, i64)},
+                OP_IDIVIDE => {BINOP!(/, i64)},
 
                 OP_NOT => {
                   let value = self.pop() ;
@@ -205,9 +204,8 @@ impl VM {
                 },
                 OP_GET_IGLOBAL => {
                     let name = READ_STRING!().clone() ;
-                    if let k = self.globals.get(&name).unwrap() {
-                        self.push(*k) ;
-                    }
+                    let k = *self.globals.get(&name).unwrap() ;
+                    self.push(k) ;
                 }
                 _ => {return INTERPRET_OK}
             }

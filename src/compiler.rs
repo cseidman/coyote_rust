@@ -213,7 +213,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn emitReturn(&mut self) {
-        self.emitOp(OP_RETURN) ;
+        self.astPush(Ast::ret) ;
     }
 
     fn emitConstant(&mut self, value: u64) {
@@ -433,9 +433,9 @@ impl<'a> Compiler<'a> {
         self.astPush(Ast::namedVar {
             varname,
             location,
-            scope: Scope::Global
+            scope: Scope::Global,
+            datatype: DataType::None
         })
-
     }
 
     fn variable(&mut self) {
@@ -461,9 +461,9 @@ impl<'a> Compiler<'a> {
         self.astPush(Ast::varDecl {
             varname,
             location,
-            scope: Scope::Global
+            scope: Scope::Global,
+            datatype: DataType::None
         })
-
     }
 
     fn parseVariable(&mut self, errorMessage: &'static str) -> u64 {
@@ -492,9 +492,8 @@ impl<'a> Compiler<'a> {
 
         self.endCompiler() ;
 
-
         let tree = buildTree(&self.ast) ;
-        walkTree(tree, 1) ;
+        walkTree(tree, 1, self.chunk) ;
 
         !self.parser.hadError
     }
