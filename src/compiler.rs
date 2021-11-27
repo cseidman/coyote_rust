@@ -104,10 +104,10 @@ macro_rules! currentChunk {
 }
 
 pub struct Compiler<'a>  {
-    chunk: &'a mut Chunk,
+    pub chunk: &'a mut Chunk,
     scanner: Scanner ,
     parser: Parser,
-    ast: Vec<Ast>
+    pub ast: Vec<Ast>
 
 }
 
@@ -494,8 +494,8 @@ impl<'a> Compiler<'a> {
 
         self.endCompiler() ;
 
-        let tree = buildTree(&self.ast) ;
-        walkTree(tree, 1, self.chunk) ;
+        let tree = self.buildTree() ;
+        self.walkTree(tree, 1) ;
 
         !self.parser.hadError
     }

@@ -140,29 +140,30 @@ pub enum Node {
 
 
 impl<'a> Compiler<'a> {
-    pub fn walkTree(node: Node, level: usize) -> DataType {
+
+    pub fn walkTree(&mut self, node: Node, level: usize) -> DataType {
         macro_rules! writeOp {
-        ($byte:expr) => {
-            writeChunk(chunk, $byte as u8, 0)
-        };
-    }
+            ($byte:expr) => {
+                writeChunk(self.chunk, $byte as u8, 0)
+            };
+        }
 
         macro_rules! writeByte {
-        ($byte:expr) => {
-            writeChunk(chunk, $byte, 0)
-        };
-    }
+            ($byte:expr) => {
+                writeChunk(self.chunk, $byte, 0)
+            };
+        }
 
         macro_rules! writef64 {
-        ($value:expr) => {
-            writef64Chunk(chunk, $value, 0);
-        };
-    }
+            ($value:expr) => {
+                writef64Chunk(self.chunk, $value, 0);
+            };
+        }
 
         match node {
             Node::Root { children: nodes } => {
                 for n in nodes {
-                    walkTree(n, level, chunk);
+                    self.walkTree(n, level);
                 }
                 DataType::None
             }
@@ -178,8 +179,8 @@ impl<'a> Compiler<'a> {
                 dataType
             },
             Node::BinaryExpr { op, lhs, rhs } => {
-                let l_type = walkTree(*lhs, level + 2);
-                let r_type = walkTree(*rhs, level + 2);
+                let l_type = self.walkTree(*lhs, level + 2);
+                let r_type = self.walkTree(*rhs, level + 2);
                 println!("{}{}", l_type.emit(), op.emit());
                 match format!("{}{}", l_type.emit(), op.emit()).as_str() {
                     "IADD" => writeOp!(OP_IADD),
@@ -197,7 +198,7 @@ impl<'a> Compiler<'a> {
                 l_type
             },
             Node::UnaryExpr { op, child } => {
-                let dataType = walkTree(*child, level + 2, chunk);
+                let dataType = self.walkTree(*child, level + 2);
                 match op {
                     Operator::Minus => println!("{}NEG", dataType.emit()),
                     _ => {}
@@ -265,14 +266,14 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    pub fn buildTree(ast: &[Ast]) -> Node {
+    pub fn buildTree(&mut self ) -> Node {
         println!("** Tree **");
 
         let mut nodes = Vec::<Node>::new();
 
-        let len = ast.len();
+        let len = self.ast.len();
         for i in 0..len {
-            let e = ast[i].clone();
+            let e = self.ast[i].clone();
             match e {
                 Ast::literal { tokenType, label, value, dataType } => {
                     let node = Node::Value {
