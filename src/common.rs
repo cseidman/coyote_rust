@@ -20,9 +20,9 @@ mod test {
     #[test]
     fn test_bytes() {
         // Get a bag of bytes
-        let num = 125489 as u64 ;
+        let num = 125489.0 as f64 ;
         let b= &num.to_be_bytes()[0..8] ;
-        let val = BytesToU64(b) ;
+        let val = BytesTof64(b) ;
         assert_eq!(num, val) ;
 
     }
