@@ -3,7 +3,7 @@ use crate::value::{ValueArray, writeValueArray};
 use crate::strings::{StringPool};
 use std::borrow::Borrow;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum OpCode {
     OP_RETURN,
     OP_CONSTANT,
@@ -73,24 +73,24 @@ impl From<u8> for OpCode {
             20  => OP_DEFINE_IGLOBAL,
             21  => OP_GET_IGLOBAL,
             22  => OP_DEFINE_FGLOBAL,
-            23 => OP_GET_FGLOBAL,
-            24 => OP_DEFINE_BGLOBAL,
-            25 => OP_GET_BGLOBAL,
-            26 => OP_DEFINE_SGLOBAL,
-            27 => OP_GET_SGLOBAL,
-            28 => OP_DEFINE_ILOCAL,
-            29 => OP_GET_ILOCAL,
-            30 => OP_DEFINE_FLOCAL,
-            31 => OP_GET_FLOCAL,
-            32 => OP_DEFINE_BLOCAL,
-            33 => OP_GET_BLOCAL,
-            34 => OP_DEFINE_SLOCAL,
-            35 => OP_GET_SLOCAL,
-            36 => OP_FADD,
-            37 => OP_FSUBTRACT,
-            38 => OP_FMULTIPLY,
-            39 => OP_FDIVIDE,
-            _ => OP_UNKNOWN,
+            23  => OP_GET_FGLOBAL,
+            24  => OP_DEFINE_BGLOBAL,
+            25  => OP_GET_BGLOBAL,
+            26  => OP_DEFINE_SGLOBAL,
+            27  => OP_GET_SGLOBAL,
+            28  => OP_DEFINE_ILOCAL,
+            29  => OP_GET_ILOCAL,
+            30  => OP_DEFINE_FLOCAL,
+            31  => OP_GET_FLOCAL,
+            32  => OP_DEFINE_BLOCAL,
+            33  => OP_GET_BLOCAL,
+            34  => OP_DEFINE_SLOCAL,
+            35  => OP_GET_SLOCAL,
+            36  => OP_FADD,
+            37  => OP_FSUBTRACT,
+            38  => OP_FMULTIPLY,
+            39  => OP_FDIVIDE,
+            _   => OP_UNKNOWN,
         }
     }
 }

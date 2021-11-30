@@ -107,7 +107,10 @@ pub struct Compiler<'a>  {
     pub chunk: &'a mut Chunk,
     scanner: Scanner ,
     parser: Parser,
-    pub ast: Vec<Ast>
+    pub ast: Vec<Ast>,
+
+    pub localCount: usize,
+    pub scopeDepth: usize
 
 }
 
@@ -118,7 +121,9 @@ impl<'a> Compiler<'a> {
             chunk,
             scanner: Scanner::new(source),
             parser: Parser::new(),
-            ast: Vec::new()
+            ast: Vec::new(),
+            localCount: 0,
+            scopeDepth: 0
         }
     }
 
@@ -354,7 +359,6 @@ impl<'a> Compiler<'a> {
             | TOKEN_PLUS        => Rule::new(UNARY, BINARY , PREC_TERM),
             TOKEN_SLASH
             | TOKEN_STAR        => Rule::new(NONE, BINARY, PREC_FACTOR),
-            TOKEN_NUMBER        => Rule::new(NUMBER, NONE, PREC_NONE),
             TOKEN_INTEGER       => Rule::new(INTEGER, NONE, PREC_NONE),
             TOKEN_FLOAT         => Rule::new(FLOAT, NONE, PREC_NONE),
             TOKEN_STRING        => Rule::new(STRING, NONE, PREC_NONE),

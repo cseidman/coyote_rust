@@ -1,6 +1,6 @@
 use crate::chunk::{Chunk,OpCode};
 use crate::value::{printValue};
-use crate::common::{BytesToU64};
+use crate::common::{BytesTof64};
 use std::convert::Into;
 
 fn simpleInstruction(name: &str, offset: usize) -> usize {
@@ -10,7 +10,7 @@ fn simpleInstruction(name: &str, offset: usize) -> usize {
 
 fn valueInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     let offset = offset+1 ;
-    let constant = BytesToU64(&chunk.code[offset..(offset+8)]) ;
+    let constant = BytesTof64(&chunk.code[offset..(offset+8)]) ;
     print!("{:16} {} '", name, constant);
     print!("{}",constant) ;
     println!("'") ;
@@ -19,7 +19,7 @@ fn valueInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
 
 fn stringInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     let offset = offset+1 ;
-    let constant = BytesToU64(&chunk.code[offset..(offset+8)]) ;
+    let constant = BytesTof64(&chunk.code[offset..(offset+8)]) ;
     let value = chunk.strings.getValue(constant as usize) ;
     print!("{:16} {} ", name, constant);
     println!("{}",value) ;
@@ -36,6 +36,14 @@ fn constantInstruction(name: &str, chunk: &Chunk, offset: usize) -> usize {
 }
 
 pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
+    macro_rules! display {
+        ($opcode:expr) => {
+            {
+                format!("{:?}",$opcode).as_str()
+            }
+        };
+    }
+
     print!("{:04} ", offset) ;
     if offset > 0 && chunk.lines[offset] == chunk.lines[offset-9] {
         print!("   | ") ;
@@ -46,26 +54,26 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
     let instruction: OpCode =  chunk.code[offset].into() ;
 
     match instruction {
-        OpCode::OP_RETURN => simpleInstruction("OP_RETURN", offset),
-        OpCode::OP_EQUAL => simpleInstruction("OP_EQUAL", offset),
-        OpCode::OP_GREATER => simpleInstruction("OP_GREATER", offset),
-        OpCode::OP_LESS => simpleInstruction("OP_LESS", offset),
-        OpCode::OP_IADD => simpleInstruction("OP_IADD", offset),
-        OpCode::OP_ISUBTRACT => simpleInstruction("OP_ISUBTRACT", offset),
-        OpCode::OP_IMULTIPLY => simpleInstruction("OP_IMULTIPLY", offset),
-        OpCode::OP_IDIVIDE => simpleInstruction("OP_IDIVIDE", offset),
-        OpCode::OP_FADD => simpleInstruction("OP_FADD", offset),
-        OpCode::OP_FSUBTRACT => simpleInstruction("OP_FSUBTRACT", offset),
-        OpCode::OP_FMULTIPLY => simpleInstruction("OP_FMULTIPLY", offset),
-        OpCode::OP_FDIVIDE => simpleInstruction("OP_FDIVIDE", offset),
-        OpCode::OP_NOT => simpleInstruction("OP_NOT", offset),
-        OpCode::OP_INEGATE => simpleInstruction("OP_INEGATE", offset),
-        OpCode::OP_CONSTANT => constantInstruction("OP_CONSTANT", chunk, offset),
-        OpCode::OP_NIL => simpleInstruction("OP_NIL", offset),
-        OpCode::OP_TRUE => simpleInstruction("OP_TRUE", offset),
-        OpCode::OP_FALSE => simpleInstruction("OP_FALSE", offset),
-        OpCode::OP_PUSH => valueInstruction("OP_PUSH",  chunk, offset),
-        OpCode::OP_PRINT => simpleInstruction("OP_PRINT", offset),
+        OpCode::OP_RETURN
+        | OpCode::OP_EQUAL
+        | OpCode::OP_GREATER
+        | OpCode::OP_LESS
+        | OpCode::OP_IADD
+        | OpCode::OP_ISUBTRACT
+        | OpCode::OP_IMULTIPLY
+        | OpCode::OP_IDIVIDE
+        | OpCode::OP_FADD
+        | OpCode::OP_FSUBTRACT
+        | OpCode::OP_FMULTIPLY
+        | OpCode::OP_FDIVIDE
+        | OpCode::OP_NOT
+        | OpCode::OP_INEGATE
+        | OpCode::OP_NIL
+        | OpCode::OP_TRUE
+        | OpCode::OP_FALSE
+        | OpCode::OP_PRINT => simpleInstruction(display!(instruction), offset),
+        OpCode::OP_PUSH => valueInstruction(display!(instruction),  chunk, offset),
+        OpCode::OP_CONSTANT => constantInstruction(display!(instruction), chunk, offset),
         _ => {
             println!("Unknown opcode {}", instruction as u8) ;
             offset
