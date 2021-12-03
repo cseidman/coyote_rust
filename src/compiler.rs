@@ -1,5 +1,5 @@
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, writeU64Chunk, addStringConstant};
+use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, writeU64Chunk, addStringConstant, getStringConstant};
 use crate::value::{Value};
 use crate::scanner::*;
 use TokenType::* ;
@@ -266,10 +266,11 @@ impl<'a> Compiler<'a> {
 
     fn text(&mut self) {
         let strVal = self.parser.previous().name ;
+        let value = addStringConstant(self.chunk, strVal.clone()) as i64;
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_STRING,
             label: strVal.to_string(),
-            value: Value::integer(addStringConstant(self.chunk, strVal) as i64) ,
+            value: Value::integer(value) ,
             dataType: DataType::String
         });
     }
@@ -425,9 +426,12 @@ impl<'a> Compiler<'a> {
     // *** Variable management **
 
     fn namedVariable(&mut self) {
-        todo!();
+
+        // This is the variable name we just encountered
         let varname = self.parser.previous().name ;
-        let location = 0 ;//self.chunk.strings.getIndex(varname.clone()) ;
+
+        // Find it in the constants table
+        let location = getStringConstant(self.chunk, varname.clone()) as usize ;
         let mut scope = Scope::Global ;
 
         self.astPush(Ast::namedVar {
@@ -444,9 +448,11 @@ impl<'a> Compiler<'a> {
 
     fn varDeclaration(&mut self) {
 
+        // This is the location of the variable in the constants table we just allocated
         let location = self.parseVariable("Expect variable name") as usize;
         let varname = self.parser.previous().name ;
 
+        // If the variable is declared with no value assigned
         if self.t_match(TOKEN_EQUAL) {
             self.expression() ;
         } else {
@@ -457,7 +463,8 @@ impl<'a> Compiler<'a> {
                 dataType: DataType::Nil
             })
         }
-        self.consume(TOKEN_SEMICOLON,"Expect ';' after variable declaration");
+
+        self.consume(TOKEN_CR,"Expect return after variable declaration");
         self.astPush(Ast::varDecl {
             varname,
             location,
@@ -469,8 +476,8 @@ impl<'a> Compiler<'a> {
     fn parseVariable(&mut self, errorMessage: &'static str) -> u16 {
         self.consume(TOKEN_IDENTIFIER, errorMessage) ;
         let strVal = self.parser.previous().name ;
-        0 as u16
-        //addConstant(self.chunk, Value::string(Box::new(strVal)))
+        // Return the pointer to the constant
+        addStringConstant(self.chunk, strVal)
     }
 
     fn declaration(&mut self) {

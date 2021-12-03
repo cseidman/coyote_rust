@@ -21,8 +21,7 @@ pub struct VM {
     chunk: Chunk,
     ip: usize,
     stack: [Value;8000],
-    stackTop: usize,
-    globals: HashMap<String, Value>
+    stackTop: usize
 }
 
 impl VM {
@@ -34,7 +33,6 @@ impl VM {
             ip: 0,
             stack:[Value::nil;8000],
             stackTop: 0,
-            globals: HashMap::new()
         }
     }
 
@@ -163,6 +161,7 @@ impl VM {
                 },
                 OP_SCONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
+                    // This is the pointer to the string in the heapValue array
                     let constant = self.chunk.constants.values[constIndex].clone() ;
                     self.push(constant) ;
                 },
@@ -200,11 +199,6 @@ impl VM {
                 OP_PRINT => {
                     let data = self.pop() ;
                     println!("{}", data) ;
-                },
-                OP_DEFINE_IGLOBAL=> {
-                    //let name = READ_STRING!().clone() ;
-                    //let value = self.pop().clone() ;
-                    //self.globals.insert(name, value) ;
                 },
                 OP_GET_IGLOBAL => {
                     //let name = READ_STRING!().clone() ;

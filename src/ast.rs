@@ -237,21 +237,27 @@ impl<'a> Compiler<'a> {
                 datatype
             } => {
                 if scope == Scope::Global {
-                    println!("OP_DEFINE_GLOBAL {}", location);
+                    println!("OP_DEFINE_GLOBAL {}", location as u16);
                     match datatype {
+                        /*
                         DataType::Integer => writeOp!(OP_DEFINE_IGLOBAL),
                         DataType::Float => writeOp!(OP_DEFINE_FGLOBAL),
                         DataType::Bool => writeOp!(OP_DEFINE_BGLOBAL),
                         DataType::String => writeOp!(OP_DEFINE_SGLOBAL),
+
+                         */
                         _ => {}
                     }
                 } else {
-                    println!("OP_DEFINE_LOCAL {}", location);
+                    println!("OP_DEFINE_LOCAL {}", location as u16);
                     match datatype {
+                        /*
                         DataType::Integer => writeOp!(OP_DEFINE_ILOCAL),
                         DataType::Float => writeOp!(OP_DEFINE_FLOCAL),
                         DataType::Bool => writeOp!(OP_DEFINE_BLOCAL),
                         DataType::String => writeOp!(OP_DEFINE_SLOCAL),
+
+                         */
                         _ => {}
                     }
                 }
@@ -268,9 +274,9 @@ impl<'a> Compiler<'a> {
                 datatype,
             } => {
                 if scope == Scope::Global {
-                    println!("OP_GET_GLOBAL {}", location);
+                    println!("OP_GET_GLOBAL {}", location as u16);
                 } else {
-                    println!("OP_GET_LOCAL {}", location);
+                    println!("OP_GET_LOCAL {}", location as u16);
                 }
                 DataType::None
             },

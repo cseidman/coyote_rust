@@ -1,5 +1,6 @@
 #![macro_use]
-use crate::strings::*;
+use crate::heapvalue::*;
+
 
 use std::fmt ;
 use std::fmt::{Formatter, Display};
@@ -108,11 +109,11 @@ impl Value {
         }
     }
 
-    pub fn get_string(self) -> String {
+    pub fn get_string_pointer(self) -> u16 {
         if let Value::string(x) = self {
             x
         } else {
-            panic!("Not a string");
+            panic!("Not a string pointer");
         }
     }
 

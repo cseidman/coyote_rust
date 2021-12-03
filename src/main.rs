@@ -18,9 +18,10 @@ mod value;
 mod vm;
 mod scanner;
 mod compiler;
-mod strings;
+mod heapvalue;
 mod common;
 mod ast;
+mod memory;
 
 use std::fs ;
 use std::path::*;

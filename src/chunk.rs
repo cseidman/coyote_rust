@@ -1,6 +1,6 @@
 use crate::chunk::OpCode::*;
 use crate::value::{ValueArray, writeValueArray, Value};
-use crate::strings::{StringPool};
+use crate::heapvalue::{MemPool, HeapValue, HeapValueArray};
 use std::borrow::Borrow;
 
 #[derive(Copy, Clone, Debug)]
@@ -25,22 +25,6 @@ pub enum OpCode {
     OP_SPOP,
     OP_PRINT,
     OP_FNEGATE,
-    OP_DEFINE_IGLOBAL,
-    OP_GET_IGLOBAL,
-    OP_DEFINE_FGLOBAL,
-    OP_GET_FGLOBAL,
-    OP_DEFINE_BGLOBAL,
-    OP_GET_BGLOBAL,
-    OP_DEFINE_SGLOBAL,
-    OP_GET_SGLOBAL,
-    OP_DEFINE_ILOCAL,
-    OP_GET_ILOCAL,
-    OP_DEFINE_FLOCAL,
-    OP_GET_FLOCAL,
-    OP_DEFINE_BLOCAL,
-    OP_GET_BLOCAL,
-    OP_DEFINE_SLOCAL,
-    OP_GET_SLOCAL,
     OP_FADD,
     OP_FSUBTRACT,
     OP_FMULTIPLY,
@@ -71,27 +55,11 @@ impl From<u8> for OpCode {
             17  => OP_SPOP,
             18  => OP_PRINT,
             19  => OP_FNEGATE,
-            20  => OP_DEFINE_IGLOBAL,
-            21  => OP_GET_IGLOBAL,
-            22  => OP_DEFINE_FGLOBAL,
-            23  => OP_GET_FGLOBAL,
-            24  => OP_DEFINE_BGLOBAL,
-            25  => OP_GET_BGLOBAL,
-            26  => OP_DEFINE_SGLOBAL,
-            27  => OP_GET_SGLOBAL,
-            28  => OP_DEFINE_ILOCAL,
-            29  => OP_GET_ILOCAL,
-            30  => OP_DEFINE_FLOCAL,
-            31  => OP_GET_FLOCAL,
-            32  => OP_DEFINE_BLOCAL,
-            33  => OP_GET_BLOCAL,
-            34  => OP_DEFINE_SLOCAL,
-            35  => OP_GET_SLOCAL,
-            36  => OP_FADD,
-            37  => OP_FSUBTRACT,
-            38  => OP_FMULTIPLY,
-            39  => OP_FDIVIDE,
-            40  => OP_SCONSTANT,
+            20  => OP_FADD,
+            21  => OP_FSUBTRACT,
+            22  => OP_FMULTIPLY,
+            23  => OP_FDIVIDE,
+            24  => OP_SCONSTANT,
             _   => OP_UNKNOWN,
         }
     }
@@ -100,15 +68,16 @@ impl From<u8> for OpCode {
 pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
+    pub heapConstants: HeapValueArray,
     pub lines: Vec<usize>
 }
 
 impl Chunk {
-
     pub fn new() -> Self {
         Chunk{
             code: Vec::new(),
             constants: ValueArray::new(),
+            heapConstants: HeapValueArray::new() ,
             lines: Vec::new()
         }
     }
@@ -158,4 +127,14 @@ pub fn addStringConstant(chunk: &mut Chunk, s: String) -> u16 {
     let val = Value::integer(curIndex as i64) ;
     writeValueArray(&mut chunk.constants, val) ;
     curIndex
+}
+
+pub fn getStringConstant(chunk: &mut Chunk,s: String) -> u16 {
+    for i in 0..(chunk.heapConstants.len()-1) {
+        let label = chunk.heapConstants[i].clone().getString() ;
+        if label == s {
+            return i as u16;
+        }
+    }
+    0 as u16
 }
