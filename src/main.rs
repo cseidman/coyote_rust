@@ -10,6 +10,7 @@
 use crate::chunk::{writeChunk, freeChunk, addConstant};
 use crate::chunk::OpCode::*;
 use crate::vm::*;
+use crptography::{cryp};
 
 mod chunk;
 mod debug;

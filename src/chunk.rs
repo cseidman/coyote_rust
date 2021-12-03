@@ -1,5 +1,5 @@
 use crate::chunk::OpCode::*;
-use crate::value::{ValueArray, writeValueArray};
+use crate::value::{ValueArray, writeValueArray, Value};
 use crate::strings::{StringPool};
 use std::borrow::Borrow;
 
@@ -45,6 +45,7 @@ pub enum OpCode {
     OP_FSUBTRACT,
     OP_FMULTIPLY,
     OP_FDIVIDE,
+    OP_SCONSTANT,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -90,6 +91,7 @@ impl From<u8> for OpCode {
             37  => OP_FSUBTRACT,
             38  => OP_FMULTIPLY,
             39  => OP_FDIVIDE,
+            40  => OP_SCONSTANT,
             _   => OP_UNKNOWN,
         }
     }
@@ -98,7 +100,6 @@ impl From<u8> for OpCode {
 pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
-    pub strings: StringPool,
     pub lines: Vec<usize>
 }
 
@@ -108,7 +109,6 @@ impl Chunk {
         Chunk{
             code: Vec::new(),
             constants: ValueArray::new(),
-            strings: StringPool::new(),
             lines: Vec::new()
         }
     }
@@ -141,14 +141,21 @@ pub fn writef64Chunk(chunk: &mut Chunk, data: f64, line: usize) {
     }
 }
 
-pub fn addConstant(chunk: &mut Chunk, value: f64) -> usize {
+pub fn writeu16Chunk(chunk: &mut Chunk, data: u16, line: usize) {
+    for b in u16::to_le_bytes(data) {
+        chunk.code.push(b);
+        chunk.lines.push(line) ;
+    }
+}
+
+pub fn addConstant(chunk: &mut Chunk, value: Value) -> u16 {
     writeValueArray(&mut chunk.constants, value) ;
-    chunk.constants.values.len()-1
+    (chunk.constants.values.len()-1) as u16
 }
 
-pub fn addStringConstant(chunk: &mut Chunk, s: String) -> usize {
-    let stringIndex = chunk.strings.store(s) ;
-    writeValueArray(&mut chunk.constants, stringIndex as f64) ;
-    chunk.constants.values.len()-1
+pub fn addStringConstant(chunk: &mut Chunk, s: String) -> u16 {
+    let curIndex = chunk.constants.values.len() as u16;
+    let val = Value::integer(curIndex as i64) ;
+    writeValueArray(&mut chunk.constants, val) ;
+    curIndex
 }
-

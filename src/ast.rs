@@ -1,8 +1,9 @@
 use crate::scanner::{TokenType} ;
 use TokenType::* ;
-use crate::chunk::{Chunk, writeChunk, OpCode, writef64Chunk};
+use crate::chunk::{Chunk, writeChunk, OpCode, writeu16Chunk, addConstant};
 use crate::chunk::OpCode::*;
 use crate::compiler::* ;
+use crate::value::{Value};
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum OpType {
@@ -41,7 +42,7 @@ pub enum Ast {
     literal {
         tokenType: TokenType,
         label: String,
-        value: f64,
+        value: Value,
         dataType: DataType
     },
     binop {
@@ -101,7 +102,7 @@ pub enum Scope {
 pub enum Node {
     Value {
         label: String,
-        value: f64,
+        value: Value,
         dataType: DataType
     },
     UnaryExpr {
@@ -154,9 +155,9 @@ impl<'a> Compiler<'a> {
             };
         }
 
-        macro_rules! writef64 {
+        macro_rules! writeOperand {
             ($value:expr) => {
-                writef64Chunk(self.chunk, $value, 0);
+                writeu16Chunk(self.chunk, $value, 0);
             };
         }
 
@@ -168,13 +169,23 @@ impl<'a> Compiler<'a> {
                 DataType::None
             }
             Node::Value { label, value, dataType } => {
-                if dataType == DataType::Nil {
-                    println!("OP_NIL");
-                    writeOp!(OP_NIL);
-                } else {
-                    println!("OP_PUSH {}", value);
-                    writeOp!(OP_PUSH);
-                    writef64!(value);
+                match dataType {
+                    DataType::Nil => {
+                        println!("OP_NIL");
+                        writeOp!(OP_NIL);
+                    },
+                    DataType::String => {
+                        let constant_index = value.get_integer() as u16;
+                        println!("OP_SCONSTANT {}", constant_index);
+                        writeOp!(OP_SCONSTANT);
+                        writeOperand!(constant_index);
+                    },
+                    _ => {
+                        let constant_index = self.makeConstant(value);
+                        println!("OP_CONSTANT {}", constant_index);
+                        writeOp!(OP_CONSTANT);
+                        writeOperand!(constant_index);
+                    }
                 }
                 dataType
             },

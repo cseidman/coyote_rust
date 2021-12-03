@@ -10,29 +10,20 @@ fn simpleInstruction(name: &str, offset: usize) -> usize {
 
 fn valueInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     let offset = offset+1 ;
-    let constant = BytesTof64(&chunk.code[offset..(offset+8)]) ;
+    let constant = BytesTof64(&chunk.code[offset..(offset+1)]) ;
     print!("{:16} {} '", name, constant);
     print!("{}",constant) ;
     println!("'") ;
-    offset + 1
-}
-
-fn stringInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
-    let offset = offset+1 ;
-    let constant = BytesTof64(&chunk.code[offset..(offset+8)]) ;
-    let value = chunk.strings.getValue(constant as usize) ;
-    print!("{:16} {} ", name, constant);
-    println!("{}",value) ;
-    offset + 1
+    offset + 3
 }
 
 fn constantInstruction(name: &str, chunk: &Chunk, offset: usize) -> usize {
-    let constant = chunk.code[offset] ;
+    let constant = chunk.code[offset+1] as usize;
     print!("{:16} {} '", name, constant);
-    let val = chunk.constants.values[constant as usize] ;
+    let val = chunk.constants.values[constant] ;
     printValue(val) ;
     println!("'") ;
-    offset +1
+    offset +3
 }
 
 pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
@@ -45,7 +36,7 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
     }
 
     print!("{:04} ", offset) ;
-    if offset > 0 && chunk.lines[offset] == chunk.lines[offset-9] {
+    if offset > 0 && chunk.lines[offset] == chunk.lines[offset-2] {
         print!("   | ") ;
     } else {
         print!("{:4} ",chunk.lines[offset]) ;

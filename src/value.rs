@@ -2,7 +2,7 @@
 use crate::strings::*;
 
 use std::fmt ;
-use std::fmt::Formatter;
+use std::fmt::{Formatter, Display};
 use std::rc::Rc;
 use std::ops;
 use std::cmp ;
@@ -16,12 +16,22 @@ use blake2::digest::generic_array::{GenericArray};
 
 pub type hashkey = GenericArray<u8, u64> ;
 
-pub fn printValue(number: f64) {
-    print!("{}",number ) ;
+pub fn printValue(value: Value) {
+    print!("{}",value ) ;
+}
+
+#[derive(Debug,Clone)]
+pub struct Array {
+    avalue: Vec<Value>
+}
+
+#[derive(Debug,Clone)]
+pub struct Dict {
+    hvalue: HashMap<Value,Value>
 }
 
 pub struct ValueArray{
-    pub values: Vec<f64>
+    pub values: Vec<Value>
 }
 
 impl ValueArray {
@@ -32,22 +42,162 @@ impl ValueArray {
     }
 }
 
-pub fn writeValueArray(array: &mut ValueArray, value: f64) {
+pub fn writeValueArray(array: &mut ValueArray, value: Value) {
     array.values.push(value) ;
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone,Copy)]
 pub enum Value {
     integer(i64),
     float(f64),
-    i128(Box<i128>),
-    decimal(Box<Decimal>),
+    i128(i128),
+    decimal(Decimal),
     logical(bool),
-    string(Box<String>),
-    dict(Box<HashMap<Value,Value>>),
-    array(Vec<Value>),
-    //hash(Box<hashkey>),
+    string(u16),
+    dict(u16),
+    array(u16),
+    hash(u16),
     nil
+}
+
+impl Display for Value {
+
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::logical(x) =>
+                if *x {
+                    write!(f, "true")
+                } else {
+                    write!(f, "false")
+                },
+            Value::nil => write!(f, "nil"),
+            //Value::array(_) => write!(f, "array"),
+            //Value::dict(_) => write!(f, "dict"),
+            Value::integer(x) => write!(f,"{}",x),
+            Value::float(x) => write!(f,"{}",x),
+            //Value::string(x) => write!(f,"{}",x),
+            _ => write!(f,"(Unknown)"),
+        }
+
+    }
+}
+
+impl Value {
+
+    pub fn get_integer(self) -> i64 {
+        if let Value::integer(x) = self {
+            x
+        } else {
+            panic!("Not an integer");
+        }
+    }
+
+    pub fn get_float(self) -> f64 {
+        if let Value::float(x) = self {
+            x
+        } else {
+            panic!("Not a float");
+        }
+    }
+
+    pub fn get_bool(self) -> bool {
+        if let Value::logical(x) = self {
+            x
+        } else {
+            panic!("Not a bool");
+        }
+    }
+
+    pub fn get_string(self) -> String {
+        if let Value::string(x) = self {
+            x
+        } else {
+            panic!("Not a string");
+        }
+    }
+
+}
+
+impl PartialEq for Value {
+
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Value::integer(x) => {
+                if let Value::integer(y) = other {
+                    x==y
+                } else {
+                    panic!("Mismatch when trying to sub integers");
+                }
+            },
+            Value::float(x) => {
+                if let Value::float(y) = other {
+                    x==y
+                } else {
+                    panic!("Mismatch when trying to sub floats");
+                }
+            },
+            Value::i128(x) => {
+                if let Value::i128(y) = other {
+                    *x==*y
+                } else {
+                    panic!("Mismatch when trying to sub 128 bit integers");
+                }
+            },
+            Value::decimal(x) => {
+                if let Value::decimal(y) = other {
+                    *x==*y
+                } else {
+                    panic!("Mismatch when trying to sub decimals");
+                }
+            },
+            _=>panic!("Unable to subtract types")
+        }
+
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self != other
+    }
+}
+
+impl Sub for Value {
+
+    type Output = Value;
+
+
+    fn sub(self, rhs: Self) -> Value {
+        match self {
+            Value::integer(x) => {
+                if let Value::integer(y) = rhs {
+                    Value::integer(x-y)
+                } else {
+                    panic!("Mismatch when trying to sub integers");
+                }
+            },
+            Value::float(x) => {
+                if let Value::float(y) = rhs {
+                    Value::float(x-y)
+                } else {
+                    panic!("Mismatch when trying to sub floats");
+                }
+            },
+            Value::i128(x) => {
+                if let Value::i128(y) = rhs {
+                    Value::i128(x-y)
+                } else {
+                    panic!("Mismatch when trying to sub 128 bit integers");
+                }
+            },
+            Value::decimal(x) => {
+                if let Value::decimal(y) = rhs {
+                    Value::decimal(x-y)
+                } else {
+                    panic!("Mismatch when trying to sub decimals");
+                }
+            },
+            _=>panic!("Unable to subtract types")
+        }
+    }
 }
 
 impl Add for Value {
@@ -69,6 +219,7 @@ impl Add for Value {
                     panic!("Mismatch when trying to add floats");
                 }
             },
+            /*
             Value::string(mut x) => {
                 if let Value::string(y) = rhs {
                     x.push_str(y.as_str());
@@ -77,16 +228,17 @@ impl Add for Value {
                     panic!("Mismatch when trying to add strings");
                 }
             },
+            */
             Value::i128(x) => {
                 if let Value::i128(y) = rhs {
-                    Value::i128(Box::new(*x+*y))
+                    Value::i128(x+y)
                 } else {
                     panic!("Mismatch when trying to add 128 bit integers");
                 }
             },
             Value::decimal(x) => {
                 if let Value::decimal(y) = rhs {
-                    Value::decimal(Box::new(*x+*y))
+                    Value::decimal(x+y)
                 } else {
                     panic!("Mismatch when trying to add decimals");
                 }
@@ -94,6 +246,8 @@ impl Add for Value {
             _=>panic!("Unable to add types")
         }
     }
+
+
 }
 
 #[cfg(test)]

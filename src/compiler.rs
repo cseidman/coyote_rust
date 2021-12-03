@@ -1,6 +1,6 @@
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, addStringConstant, writeU64Chunk};
-use crate::value;
+use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, writeU64Chunk, addStringConstant};
+use crate::value::{Value};
 use crate::scanner::*;
 use TokenType::* ;
 use std::io::{stderr, Write} ;
@@ -224,18 +224,13 @@ impl<'a> Compiler<'a> {
         }) ;
     }
 
-    fn emitConstant(&mut self, value: u64) {
-        let byte = self.makeConstant("df".to_string()) as u8 ;
+    fn emitConstant(&mut self, value: Value) {
+        let byte = self.makeConstant(value) as u8 ;
         self.emitBytes(OP_CONSTANT, byte) ;
     }
 
-    fn makeConstant(&mut self, value: String) -> usize {
-        let index = addConstant(currentChunk!(self), 0.0) ;
-        if index > u8::MAX as usize {
-            self.error("Too many constants in one chunk") ;
-            return 0 ;
-        }
-        index
+    pub fn makeConstant(&mut self, value: Value) -> u16 {
+        addConstant(currentChunk!(self), value)
     }
 
     fn endCompiler(&mut self) {
@@ -251,43 +246,41 @@ impl<'a> Compiler<'a> {
             TOKEN_FALSE => self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_FALSE,
                 label: "False".to_string(),
-                value: 0.0,
+                value: Value::logical(false),
                 dataType: DataType::Bool
             }),
             TOKEN_TRUE => self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_TRUE,
                 label: "True".to_string(),
-                value: 1.0,
+                value: Value::logical(true),
                 dataType: DataType::Bool
             }),
             _ => self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_NIL,
                 label: "Nil".to_string(),
-                value: 0.0,
+                value: Value::nil,
                 dataType: DataType::Bool
             })
         }
     }
 
     fn text(&mut self) {
-        let strVal = &self.parser.previous().name ;
-        let pointer = addStringConstant(self.chunk, strVal.to_string()) as f64;
-        let s = strVal.as_str();
+        let strVal = self.parser.previous().name ;
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_STRING,
             label: strVal.to_string(),
-            value: pointer ,
+            value: Value::integer(addStringConstant(self.chunk, strVal) as i64) ,
             dataType: DataType::String
         });
     }
 
     fn integer(&mut self) {
         let strVal = self.parser.previous().name ;
-        let integer = f64::from_str(strVal.as_str()).unwrap() ;
+        let integer = i64::from_str(strVal.as_str()).unwrap() ;
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_INTEGER,
             label: strVal,
-            value: integer ,
+            value: Value::integer(integer) ,
             dataType: DataType::Integer
         });
     }
@@ -299,7 +292,7 @@ impl<'a> Compiler<'a> {
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_FLOAT,
             label: strVal,
-            value: float ,
+            value: Value::float(float) ,
             dataType: DataType::Float
         });
     }
@@ -432,8 +425,9 @@ impl<'a> Compiler<'a> {
     // *** Variable management **
 
     fn namedVariable(&mut self) {
+        todo!();
         let varname = self.parser.previous().name ;
-        let location = self.chunk.strings.getIndex(varname.clone()) ;
+        let location = 0 ;//self.chunk.strings.getIndex(varname.clone()) ;
         let mut scope = Scope::Global ;
 
         self.astPush(Ast::namedVar {
@@ -459,7 +453,7 @@ impl<'a> Compiler<'a> {
             self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_NIL,
                 label: "nil".to_string(),
-                value: 0.0,
+                value: Value::nil,
                 dataType: DataType::Nil
             })
         }
@@ -472,10 +466,11 @@ impl<'a> Compiler<'a> {
         })
     }
 
-    fn parseVariable(&mut self, errorMessage: &'static str) -> u64 {
+    fn parseVariable(&mut self, errorMessage: &'static str) -> u16 {
         self.consume(TOKEN_IDENTIFIER, errorMessage) ;
         let strVal = self.parser.previous().name ;
-        addStringConstant(self.chunk, strVal) as u64
+        0 as u16
+        //addConstant(self.chunk, Value::string(Box::new(strVal)))
     }
 
     fn declaration(&mut self) {

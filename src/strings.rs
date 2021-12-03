@@ -1,4 +1,4 @@
-pub struct StringPool {
+pub struct MemPool {
     strings: Vec<Option<String>>,
     freeSlots: Vec<usize>,
     slotPtr: usize,
