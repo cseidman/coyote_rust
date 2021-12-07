@@ -17,14 +17,23 @@ pub enum InterpretResult {
     INTERPRET_RUNTIME_ERROR
 }
 
-pub struct VM {
-    chunk: Chunk,
-    ip: usize,
-    stack: [Value;8000],
-    stackTop: usize
+pub struct Frame<'a> {
+    slots: &'a [Value],
+    ip: usize
 }
 
-impl VM {
+pub struct VM<'a> {
+    chunk: Chunk,
+    ip: usize,
+    
+    stack: [Value;8000],
+    stackTop: usize,
+    
+    frames: Vec<Frame<'a>>
+    
+}
+
+impl VM<'_> {
 
     pub fn new() -> Self {
 
@@ -32,7 +41,8 @@ impl VM {
             chunk: Chunk::new(),
             ip: 0,
             stack:[Value::nil;8000],
-            stackTop: 0,
+            stackTop: 20,
+            frames: Vec::new()
         }
     }
 
@@ -43,7 +53,7 @@ impl VM {
 
     pub fn peek(&mut self, distance: usize) -> Value {
         let index = self.stackTop-1-distance ;
-        self.stack[index].clone()
+        self.stack[index]
     }
 
     pub fn pop(&mut self) -> Value {
@@ -74,7 +84,7 @@ impl VM {
     pub fn debug(&self) {
 
         print!("          ");
-        for slot in 0..self.stackTop {
+        for slot in 20..self.stackTop {
             print!("[ ");
             let val = self.stack[slot] ;
             printValue(val);
@@ -156,13 +166,13 @@ impl VM {
                 },
                 OP_CONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
-                    let constant = self.chunk.constants.values[constIndex].clone() ;
+                    let constant = self.chunk.constants.values[constIndex] ;
                     self.push(constant) ;
                 },
                 OP_SCONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
                     // This is the pointer to the string in the heapValue array
-                    let constant = self.chunk.constants.values[constIndex].clone() ;
+                    let constant = self.chunk.constants.values[constIndex] ;
                     self.push(constant) ;
                 },
                 OP_NIL => { self.push(Value::nil)},
@@ -195,16 +205,26 @@ impl VM {
                 OP_FNEGATE => {
                     let value = -self.pop().get_float();
                     self.push(Value::float(value));
+                },
+                OP_LOADVAR => {
+                    let slot = READ_OPERAND!() as usize;
+                    self.push(self.stack[slot]) ;
+                }
+                OP_SETVAR => {
+                    let slot = READ_OPERAND!() as usize;
+                    self.stack[slot] = self.pop() ;
                 }
                 OP_PRINT => {
                     let data = self.pop() ;
                     println!("{}", data) ;
                 },
-                OP_GET_IGLOBAL => {
-                    //let name = READ_STRING!().clone() ;
-                    //let k = self.globals.get(&name).unwrap().clone() ;
-                    //self.push(k) ;
-                }
+
+                OP_SPRINT => {
+                    let data = self.pop().get_integer() as usize;
+                    let s = self.chunk.heapConstants[data].clone().getString() ;
+                    println!("{}", s) ;
+                },
+
                 _ => {return INTERPRET_OK}
             }
 

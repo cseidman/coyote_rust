@@ -156,9 +156,6 @@ impl PartialEq for Value {
 
     }
 
-    fn ne(&self, other: &Self) -> bool {
-        self != other
-    }
 }
 
 impl Sub for Value {
@@ -287,23 +284,6 @@ mod test {
         } else {
             assert!(false) ;
         }
-    }
-
-    #[test]
-    pub fn test_string() {
-
-        let lhVal = Value::string(Box::new("Hey".to_string())) ;
-        let rhVal = Value::string(Box::new(" hey!".to_string())) ;
-
-        let result = lhVal + rhVal ;
-
-        if let Value::string(x) = &result {
-            println!("Result of 'Hey' + ' hey!' = {:?}", result) ;
-            assert_eq!(**x, "Hey hey!".to_string());
-        } else {
-            assert!(false) ;
-        }
-
     }
 
 }

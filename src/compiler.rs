@@ -7,6 +7,7 @@ use std::io::{stderr, Write} ;
 use OpCode::*;
 use std::str::{FromStr};
 use crate::ast::* ;
+use crate::symbol::{SymbolTable, Symbol};
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -38,6 +39,7 @@ enum ExpFunctions {
 
 use ExpFunctions::* ;
 use crate::debug::{disassembleInstruction, disassembleChunk};
+use std::env::var;
 
 struct Rule {
     prefix: ExpFunctions,
@@ -110,7 +112,9 @@ pub struct Compiler<'a>  {
     pub ast: Vec<Ast>,
 
     pub localCount: usize,
-    pub scopeDepth: usize
+    pub scopeDepth: usize,
+
+    pub symbTable: SymbolTable
 
 }
 
@@ -123,8 +127,18 @@ impl<'a> Compiler<'a> {
             parser: Parser::new(),
             ast: Vec::new(),
             localCount: 0,
-            scopeDepth: 0
+            scopeDepth: 0,
+            symbTable: SymbolTable::new()
         }
+    }
+
+    // Symbol table operations
+    pub fn addVariable(&mut self, varname: String, datatype: DataType) -> usize {
+        self.symbTable.addSymbol(varname, datatype)
+    }
+
+    pub fn getVariable(&mut self, varname: String) -> Symbol {
+        self.symbTable.getSymbol(varname).unwrap()
     }
 
     fn astPush(&mut self, ast: Ast ) {
@@ -196,45 +210,13 @@ impl<'a> Compiler<'a> {
         true
     }
 
-
-    fn emitOp(&mut self, opcode: OpCode)  {
-        self.emitByte(opcode as u8) ;
-    }
-
-    fn emitByte(&mut self, byte: u8) {
-        let line = self.parser.previous().line ;
-        let chunk = currentChunk!(self) ;
-        writeChunk(chunk, byte, line);
-    }
-
-    fn emitBytes(&mut self, opcode: OpCode, byte: u8) {
-        self.emitOp(opcode) ;
-        self.emitByte(byte) ;
-    }
-
-    fn emitU64(&mut self, number: u64 ) {
-        let line = self.parser.previous().line ;
-        let chunk = currentChunk!(self) ;
-        writeU64Chunk(chunk, number, line);
-    }
-
-    fn emitReturn(&mut self) {
-        self.astPush(Ast::ret {
-            datatype: DataType::None
-        }) ;
-    }
-
-    fn emitConstant(&mut self, value: Value) {
-        let byte = self.makeConstant(value) as u8 ;
-        self.emitBytes(OP_CONSTANT, byte) ;
-    }
-
     pub fn makeConstant(&mut self, value: Value) -> u16 {
         addConstant(currentChunk!(self), value)
     }
 
     fn endCompiler(&mut self) {
-        self.emitReturn() ;
+
+        self.astPush(Ast::ret) ;
 
         if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
@@ -269,7 +251,7 @@ impl<'a> Compiler<'a> {
         let value = addStringConstant(self.chunk, strVal.clone()) as i64;
         self.astPush(Ast::literal {
             tokenType: TokenType::TOKEN_STRING,
-            label: strVal.to_string(),
+            label: strVal,
             value: Value::integer(value) ,
             dataType: DataType::String
         });
@@ -296,6 +278,15 @@ impl<'a> Compiler<'a> {
             value: Value::float(float) ,
             dataType: DataType::Float
         });
+    }
+
+    fn block(&mut self) {
+        self.astPush(Ast::block) ;
+        while !self.check(TOKEN_RIGHT_BRACE) && !self.check(TOKEN_EOF) {
+            self.declaration();
+        }
+        self.consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+        self.astPush(Ast::endBlock);
     }
 
     fn grouping(&mut self) {
@@ -365,7 +356,7 @@ impl<'a> Compiler<'a> {
             | TOKEN_GREATER_EQUAL
             | TOKEN_LESS
             | TOKEN_LESS_EQUAL  => Rule::new(NONE, BINARY, PREC_COMPARISON),
-            | TOKEN_IDENTIFIER => Rule::new(VARIABLE, NONE, PREC_NONE),
+            | TOKEN_IDENTIFIER  => Rule::new(VARIABLE, NONE, PREC_NONE),
             _                   => Rule::new(NONE, NONE, PREC_NONE )
         }
     }
@@ -409,18 +400,32 @@ impl<'a> Compiler<'a> {
 
     fn printStatement(&mut self) {
         self.expression();
-        self.consume(TOKEN_SEMICOLON, "Expect ';' after value.");
-        self.astPush(Ast::statement {
-            tokenType: TokenType::TOKEN_PRINT
-        });
+        self.astPush(Ast::print);
+    }
+
+    fn ifStatement(&mut self) {
+        self.consume(TOKEN_IF,"Expecting IF statement");
+
+        self.expression();
+        self.astPush(Ast::ifStmt) ;
+        self.block();
+
+        if self.t_match(TOKEN_ELSE) {
+            self.astPush(Ast::Else) ;
+            self.block();
+        }
     }
 
     fn statement(&mut self) {
         if self.t_match(TOKEN_PRINT) {
             self.printStatement();
-            return ;
+        } else if self.t_match(TOKEN_LEFT_BRACE) {
+            self.block();
+        } else if self.t_match(TOKEN_IF) {
+            self.ifStatement() ;
+        } else {
+            self.expression();
         }
-        self.expression() ;
     }
 
     // *** Variable management **
@@ -429,17 +434,21 @@ impl<'a> Compiler<'a> {
 
         // This is the variable name we just encountered
         let varname = self.parser.previous().name ;
-
-        // Find it in the constants table
-        let location = getStringConstant(self.chunk, varname.clone()) as usize ;
-        let mut scope = Scope::Global ;
-
-        self.astPush(Ast::namedVar {
-            varname,
-            location,
-            scope: Scope::Global,
-            datatype: DataType::None
-        })
+        // Are we about to assign a value?
+        let mut isAssigned = false ;
+        if self.t_match(TOKEN_EQUAL) {
+            self.expression() ;
+            isAssigned = true ;
+            self.astPush(Ast::setVar {
+                varname: varname.clone(),
+                datatype: DataType::None
+            });
+        } else {
+            // If not, then it's being used as an expression
+            self.astPush(Ast::namedVar {
+                varname
+            });
+        }
     }
 
     fn variable(&mut self) {
@@ -449,35 +458,33 @@ impl<'a> Compiler<'a> {
     fn varDeclaration(&mut self) {
 
         // This is the location of the variable in the constants table we just allocated
-        let location = self.parseVariable("Expect variable name") as usize;
+        self.advance();
         let varname = self.parser.previous().name ;
+        let mut isAssigned = false ;
 
-        // If the variable is declared with no value assigned
         if self.t_match(TOKEN_EQUAL) {
             self.expression() ;
+            isAssigned = true ;
         } else {
             self.astPush(Ast::literal {
                 tokenType: TokenType::TOKEN_NIL,
                 label: "nil".to_string(),
                 value: Value::nil,
-                dataType: DataType::Nil
-            })
+                dataType: DataType::None
+            });
         }
 
-        self.consume(TOKEN_CR,"Expect return after variable declaration");
         self.astPush(Ast::varDecl {
-            varname,
-            location,
-            scope: Scope::Global,
-            datatype: DataType::None
-        })
+            varname: varname.clone(),
+            assigned: isAssigned
+        });
+
     }
 
-    fn parseVariable(&mut self, errorMessage: &'static str) -> u16 {
+    fn parseVariable(&mut self, errorMessage: &'static str)  {
         self.consume(TOKEN_IDENTIFIER, errorMessage) ;
-        let strVal = self.parser.previous().name ;
-        // Return the pointer to the constant
-        addStringConstant(self.chunk, strVal)
+        self.namedVariable() ;
+
     }
 
     fn declaration(&mut self) {

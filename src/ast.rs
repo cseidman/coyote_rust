@@ -4,6 +4,8 @@ use crate::chunk::{Chunk, writeChunk, OpCode, writeu16Chunk, addConstant};
 use crate::chunk::OpCode::*;
 use crate::compiler::* ;
 use crate::value::{Value};
+use std::env::var;
+
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum OpType {
@@ -55,24 +57,27 @@ pub enum Ast {
         label: String,
         operator: Operator
     },
+    setVar {
+        varname: String,
+        datatype: DataType
+    },
     varDecl {
         varname: String ,
-        location: usize,
-        scope: Scope,
-        datatype: DataType
+        assigned: bool
     },
     namedVar {
-        varname: String ,
-        location: usize,
-        scope: Scope,
-        datatype: DataType
+        varname: String
     },
-    ret {
-        datatype: DataType
-    },
+    ret ,
     statement {
         tokenType: TokenType
-    }
+    },
+    print ,
+    block,
+    endBlock,
+    ifStmt,
+    Else,
+    End
 }
 
 #[derive(Debug, Clone)]
@@ -91,11 +96,6 @@ impl Operator {
             Operator::Mul=>"MUL"
         }.to_string()
     }
-}
-#[derive(Clone, PartialEq)]
-pub enum Scope {
-    Global,
-    Local
 }
 
 #[derive(Clone)]
@@ -119,26 +119,34 @@ pub enum Node {
     },
     VarDecl {
         name: String ,
-        location: usize,
-        scope: Scope,
-        datatype: DataType
+        assigned: bool,
+        varExpr: Box<Node>
+    },
+    setVar {
+        name: String ,
+        datatype: DataType,
+        child: Box<Node>
     },
     namedVar {
-        name: String ,
-        location: usize,
-        scope: Scope,
-        datatype: DataType
+        name: String
     },
     Return {
-        datatype: DataType
+        returnVal: Box<Node>
     },
     Root {
         children: Vec<Node>
-    }
+    },
+    Print {
+        printExpr: Box<Node>
+    },
+    Block,
+    EndBlock,
+    ifStmt {
+        condition: Box<Node>
+    },
+    Else,
+    End
 }
-
-
-
 
 impl<'a> Compiler<'a> {
 
@@ -171,18 +179,16 @@ impl<'a> Compiler<'a> {
             Node::Value { label, value, dataType } => {
                 match dataType {
                     DataType::Nil => {
-                        println!("OP_NIL");
                         writeOp!(OP_NIL);
                     },
                     DataType::String => {
                         let constant_index = value.get_integer() as u16;
-                        println!("OP_SCONSTANT {}", constant_index);
+
                         writeOp!(OP_SCONSTANT);
                         writeOperand!(constant_index);
                     },
                     _ => {
                         let constant_index = self.makeConstant(value);
-                        println!("OP_CONSTANT {}", constant_index);
                         writeOp!(OP_CONSTANT);
                         writeOperand!(constant_index);
                     }
@@ -211,7 +217,18 @@ impl<'a> Compiler<'a> {
             Node::UnaryExpr { op, child } => {
                 let dataType = self.walkTree(*child, level + 2);
                 match op {
-                    Operator::Minus => println!("{}NEG", dataType.emit()),
+                    Operator::Minus => {
+                        match dataType {
+                            DataType::Integer => {
+                                writeOp!(OP_INEGATE) ;
+                            },
+                            DataType::Float => {
+                                writeOp!(OP_FNEGATE) ;
+                            },
+                            _ => {}
+                        }
+                    },
+                    Operator::Plus => {},
                     _ => {}
                 }
                 dataType
@@ -220,9 +237,6 @@ impl<'a> Compiler<'a> {
                 tokenType
             } => {
                 match tokenType {
-                    TOKEN_PRINT => {
-                        println!("OP_PRINT");
-                    }
                     TOKEN_START => {
                         println!("START");
                     }
@@ -230,56 +244,103 @@ impl<'a> Compiler<'a> {
                 }
                 DataType::None
             },
+
             Node::VarDecl {
                 name,
-                location,
-                scope,
-                datatype
+                assigned,
+                varExpr
             } => {
-                if scope == Scope::Global {
-                    println!("OP_DEFINE_GLOBAL {}", location as u16);
-                    match datatype {
-                        /*
-                        DataType::Integer => writeOp!(OP_DEFINE_IGLOBAL),
-                        DataType::Float => writeOp!(OP_DEFINE_FGLOBAL),
-                        DataType::Bool => writeOp!(OP_DEFINE_BGLOBAL),
-                        DataType::String => writeOp!(OP_DEFINE_SGLOBAL),
+                let datatype = self.walkTree(*varExpr, level + 2);
+                let loc = self.addVariable(name, datatype) ;
+                writeOp!(OP_SETVAR);
+                writeOperand!(loc as u16);
 
-                         */
-                        _ => {}
-                    }
-                } else {
-                    println!("OP_DEFINE_LOCAL {}", location as u16);
-                    match datatype {
-                        /*
-                        DataType::Integer => writeOp!(OP_DEFINE_ILOCAL),
-                        DataType::Float => writeOp!(OP_DEFINE_FLOCAL),
-                        DataType::Bool => writeOp!(OP_DEFINE_BLOCAL),
-                        DataType::String => writeOp!(OP_DEFINE_SLOCAL),
+                datatype
+            },
 
-                         */
-                        _ => {}
-                    }
+            Node::setVar {
+                name,
+                datatype,
+                child
+            } => {
+
+                let symbol = self.getVariable(name) ;
+                let valueDataType = self.walkTree(*child, level + 2);
+
+                let mut varType = datatype ;
+                if varType == DataType::None {
+                    varType = valueDataType;
                 }
+                // Todo: Check that the variable type matches the value type
+
+                writeOp!(OP_SETVAR);
+                writeOperand!(symbol.location as u16);
+
+                varType
+            },
+
+            Node::namedVar {
+                name
+            } => {
+                let symbol = self.getVariable(name) ;
+
+                 writeOp!(OP_LOADVAR);
+                 writeOperand!(symbol.location as u16);
+
+                symbol.datatype
+            },
+
+            Node::Block => {
+                self.symbTable.pushLevel();
                 DataType::None
             },
-            Node::Return { datatype } => {
+
+            Node::EndBlock => {
+                self.symbTable.popLevel();
+                DataType::None
+            },
+
+            Node::ifStmt {
+                condition
+            } => {
+                let dataType = self.walkTree(*condition, level + 2);
+                // This has to return a boolean
+                if dataType != DataType::Bool {
+                    panic!("IF statement must return a boolean");
+                }
+                writeOp!(OP_JUMP_IF_FALSE);
+                writeOperand!(9999_u16);
+                // Tag where we are chunk-wise
+                let startLocation = self.chunk.code.len()-1;
+                DataType::None
+            },
+
+            Node::Else => {
+                writeOp!(OP_JUMP);
+                writeOperand!(9999_u16);
+                DataType::None
+            },
+            Node::End => {
+                DataType::None
+            },
+            Node::Print {
+                printExpr
+            } => {
+                let datatype = self.walkTree(*printExpr, level + 2);
+                match datatype {
+                    DataType::String => writeOp!(OP_SPRINT),
+                    _ => writeOp!(OP_PRINT)
+                }
+                datatype
+            },
+            Node::Return {
+                returnVal
+            } => {
+                let datatype = self.walkTree(*returnVal, level + 2);
                 writeOp!(OP_RETURN);
                 datatype
-            },
-            Node::namedVar {
-                name,
-                location,
-                scope,
-                datatype,
-            } => {
-                if scope == Scope::Global {
-                    println!("OP_GET_GLOBAL {}", location as u16);
-                } else {
-                    println!("OP_GET_LOCAL {}", location as u16);
-                }
-                DataType::None
-            },
+            }
+
         }
     }
 
@@ -289,10 +350,16 @@ impl<'a> Compiler<'a> {
         let mut nodes = Vec::<Node>::new();
 
         let len = self.ast.len();
+
         for i in 0..len {
             let e = self.ast[i].clone();
             match e {
-                Ast::literal { tokenType, label, value, dataType } => {
+                Ast::literal {
+                    tokenType,
+                    label,
+                    value,
+                    dataType
+                } => {
                     let node = Node::Value {
                         label,
                         value,
@@ -321,38 +388,72 @@ impl<'a> Compiler<'a> {
                     };
                     nodes.push(node);
                 },
-                Ast::varDecl {
+
+                Ast::setVar {
                     varname,
-                    location,
-                    scope,
                     datatype
                 } => {
+
+                    let childVal = nodes.pop().unwrap() ;
+
+                    nodes.push(Node::setVar {
+                        name: varname,
+                        datatype,
+                        child: Box::new(childVal)
+                    });
+                },
+
+                Ast::varDecl {
+                    varname,
+                    assigned,
+                } => {
+
+                    let declExpr = nodes.pop().unwrap() ;
                     let node = Node::VarDecl {
                         name: varname,
-                        location,
-                        scope,
-                        datatype
+                        assigned,
+                        varExpr: Box::new(declExpr)
                     };
                     nodes.push(node);
                 },
-                Ast::ret { datatype } => {
+                Ast::ret => {
+                    let retVal = nodes.pop().unwrap() ;
                     nodes.push(Node::Return {
-                        datatype
+                        returnVal: Box::new(retVal)
                     });
                 },
                 Ast::namedVar {
-                    varname,
-                    location,
-                    scope,
-                    datatype
+                    varname
+
                 } => {
                     let node = Node::namedVar {
-                        name: varname,
-                        location,
-                        scope,
-                        datatype
+                        name: varname
                     };
                     nodes.push(node);
+                },
+                Ast::block => {
+                    nodes.push(Node::Block);
+                },
+                Ast::endBlock => {
+                    nodes.push(Node::EndBlock);
+                },
+                Ast::ifStmt => {
+                    let cond = nodes.pop().unwrap() ;
+                    nodes.push(Node::ifStmt {
+                        condition: Box::new(cond)
+                    });
+                },
+                Ast::Else => {
+                    nodes.push(Node::Else);
+                },
+                Ast::End => {
+                    nodes.push(Node::End);
+                },
+                Ast::print => {
+                    let printExpr = nodes.pop().unwrap() ;
+                    nodes.push(Node::Print {
+                        printExpr: Box::new(printExpr)
+                    })
                 }
             }
         }

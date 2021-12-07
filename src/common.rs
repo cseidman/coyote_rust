@@ -4,6 +4,12 @@ pub fn BytesTof64(bytes: &[u8]) -> f64 {
     f64::from_be_bytes(val)
 }
 
+pub fn BytesToU16(bytes: &[u8]) -> u16 {
+    let mut val:[u8;2] = Default::default();
+    val.copy_from_slice(bytes) ;
+    u16::from_le_bytes(val)
+}
+
 pub fn boolAsf64(b: bool) -> f64 {
     if b {
         1.0

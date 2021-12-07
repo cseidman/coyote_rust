@@ -10,7 +10,7 @@
 use crate::chunk::{writeChunk, freeChunk, addConstant};
 use crate::chunk::OpCode::*;
 use crate::vm::*;
-use crptography::{cryp};
+use crptography::{Cryp};
 
 mod chunk;
 mod debug;
@@ -22,6 +22,7 @@ mod heapvalue;
 mod common;
 mod ast;
 mod memory;
+mod symbol;
 
 use std::fs ;
 use std::path::*;
@@ -30,7 +31,6 @@ use std::io::{self,stdin,stdout,Write};
 use std::fmt::Error;
 use std::borrow::{BorrowMut, Borrow};
 use clap::{Arg, App};
-
 
 fn main() -> ! {
 

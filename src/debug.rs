@@ -1,6 +1,6 @@
 use crate::chunk::{Chunk,OpCode};
 use crate::value::{printValue};
-use crate::common::{BytesTof64};
+use crate::common::{BytesToU16};
 use std::convert::Into;
 
 fn simpleInstruction(name: &str, offset: usize) -> usize {
@@ -10,11 +10,9 @@ fn simpleInstruction(name: &str, offset: usize) -> usize {
 
 fn valueInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     let offset = offset+1 ;
-    let constant = BytesTof64(&chunk.code[offset..(offset+1)]) ;
-    print!("{:16} {} '", name, constant);
-    print!("{}",constant) ;
-    println!("'") ;
-    offset + 3
+    let constant = BytesToU16(&chunk.code[offset..offset+2]) ;
+    println!("{:16} {}", name, constant);
+    offset + 2
 }
 
 fn constantInstruction(name: &str, chunk: &Chunk, offset: usize) -> usize {
@@ -62,9 +60,13 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_NIL
         | OpCode::OP_TRUE
         | OpCode::OP_FALSE
+        | OpCode::OP_SPRINT
         | OpCode::OP_PRINT => simpleInstruction(display!(instruction), offset),
-        OpCode::OP_PUSH => valueInstruction(display!(instruction),  chunk, offset),
-        OpCode::OP_CONSTANT => constantInstruction(display!(instruction), chunk, offset),
+        OpCode::OP_PUSH
+        | OpCode::OP_LOADVAR
+        | OpCode::OP_SETVAR => valueInstruction(display!(instruction),  chunk, offset),
+        OpCode::OP_SCONSTANT
+        | OpCode::OP_CONSTANT => constantInstruction(display!(instruction), chunk, offset),
         _ => {
             println!("Unknown opcode {}", instruction as u8) ;
             offset

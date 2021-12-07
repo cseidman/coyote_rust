@@ -1,4 +1,4 @@
-pub struct cryp {
+pub struct Cryp {
 
 }
 
