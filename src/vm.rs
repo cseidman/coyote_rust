@@ -143,17 +143,39 @@ impl VM<'_> {
             };
         }
 
-        macro_rules! CMPOP {
+        macro_rules! CPIPOP {
             ($binop:tt) => {
                 {
-                    let rt = self.pop().get_bool() ;
-                    let lt = self.pop().get_bool() ;
+                    let rt = self.pop().get_integer() ;
+                    let lt = self.pop().get_integer() ;
                     let val = Value::logical(lt $binop rt) ;
                     self.push(val);
                 }
             };
         }
-        
+
+        macro_rules! CPFPOP {
+            ($binop:tt) => {
+                {
+                    let rt = self.pop().get_float() ;
+                    let lt = self.pop().get_float() ;
+                    let val = Value::logical(lt $binop rt) ;
+                    self.push(val);
+                }
+            };
+        }
+
+        macro_rules! CPSPOP {
+            ($binop:tt) => {
+                {
+                    let rt = self.pop().get_string_pointer();
+                    let lt = self.pop().get_string_pointer() ;
+                    let val = Value::logical(lt $binop rt) ;
+                    self.push(val);
+                }
+            };
+        }
+
         loop {
 
             self.debug();
@@ -183,8 +205,8 @@ impl VM<'_> {
                     let b = self.pop() ;
                     self.push(Value::logical(a==b));
                 },
-                OP_GREATER => {CMPOP!(>)},
-                OP_LESS => {CMPOP!(<)},
+                OP_GREATER => {CPIPOP!(>)},
+                OP_LESS => {CPIPOP!(<)},
                 OP_IADD => {IBINOP!(+)},
                 OP_FADD => {FBINOP!(+)},
                 OP_ISUBTRACT => {IBINOP!(-)},
@@ -193,6 +215,10 @@ impl VM<'_> {
                 OP_FMULTIPLY => {FBINOP!(*)},
                 OP_IDIVIDE => {IBINOP!(*)},
                 OP_FDIVIDE => {FBINOP!(/)},
+
+                OP_IEQ => {CPIPOP!(==)},
+                OP_FEQ => {CPFPOP!(==)},
+                OP_SEQ => {CPSPOP!(==)},
 
                 OP_NOT => {
                   let value = !self.pop().get_bool();
@@ -224,7 +250,21 @@ impl VM<'_> {
                     let s = self.chunk.heapConstants[data].clone().getString() ;
                     println!("{}", s) ;
                 },
+                OP_JUMP_IF_FALSE => {
 
+                    let logicalResult = self.pop().get_bool() ;
+                    let jumpto = READ_OPERAND!() as usize;
+                    if !logicalResult {
+                        self.ip += jumpto ;
+                    }
+                },
+                OP_JUMP =>{
+                    //READ_OPERAND!();
+                    self.ip += READ_OPERAND!() as usize;
+                },
+                OP_NOP => {
+
+                }
                 _ => {return INTERPRET_OK}
             }
 

@@ -355,7 +355,7 @@ impl Scanner {
 
         let tokenString = self.getTokenValue() ;
         // If this identifier is a keyword, then return the appropriate token
-        match tokenString.as_str() {
+        match tokenString.to_lowercase().as_str() {
             "and"       => TOKEN_AND,
             "class"     => TOKEN_CLASS,
             "else"      => TOKEN_ELSE,

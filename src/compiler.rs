@@ -34,12 +34,14 @@ enum ExpFunctions {
     GROUPING,
     LITERAL,
     STRING,
-    VARIABLE
+    VARIABLE,
+    BLOCKING
 }
 
 use ExpFunctions::* ;
 use crate::debug::{disassembleInstruction, disassembleChunk};
 use std::env::var;
+use std::collections::HashMap;
 
 struct Rule {
     prefix: ExpFunctions,
@@ -114,7 +116,8 @@ pub struct Compiler<'a>  {
     pub localCount: usize,
     pub scopeDepth: usize,
 
-    pub symbTable: SymbolTable
+    pub symbTable: SymbolTable,
+
 
 }
 
@@ -128,7 +131,8 @@ impl<'a> Compiler<'a> {
             ast: Vec::new(),
             localCount: 0,
             scopeDepth: 0,
-            symbTable: SymbolTable::new()
+            symbTable: SymbolTable::new(),
+
         }
     }
 
@@ -138,7 +142,12 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn getVariable(&mut self, varname: String) -> Symbol {
-        self.symbTable.getSymbol(varname).unwrap()
+        let symb = self.symbTable.getSymbol(varname.clone()) ;
+        if symb.is_err() {
+            panic!("Cannot find variable {}", varname.clone()) ;
+        } else {
+            symb.unwrap()
+        }
     }
 
     fn astPush(&mut self, ast: Ast ) {
@@ -280,18 +289,16 @@ impl<'a> Compiler<'a> {
         });
     }
 
-    fn block(&mut self) {
-        self.astPush(Ast::block) ;
-        while !self.check(TOKEN_RIGHT_BRACE) && !self.check(TOKEN_EOF) {
-            self.declaration();
-        }
-        self.consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
-        self.astPush(Ast::endBlock);
-    }
-
     fn grouping(&mut self) {
         self.expression();
         self.consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression") ;
+    }
+
+    fn block(&mut self) {
+        while !self.check(TOKEN_RIGHT_BRACE) && !self.check(TOKEN_EOF) {
+            self.declaration()
+        }
+        self.consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
     }
 
     fn unary(&mut self) {
@@ -325,6 +332,7 @@ impl<'a> Compiler<'a> {
             TOKEN_MINUS => Operator::Minus,
             TOKEN_STAR => Operator::Mul,
             TOKEN_SLASH => Operator::Div,
+            TOKEN_EQUAL_EQUAL => Operator::Eq,
             // TODO: Panic here
             _ => Operator::Plus
         } ;
@@ -340,6 +348,7 @@ impl<'a> Compiler<'a> {
     fn getRule(&mut self, tokenType: TokenType) -> Rule {
         match tokenType {
             TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_NONE),
+            TOKEN_LEFT_BRACE    => Rule::new(BLOCKING, NONE, PREC_NONE),
             TOKEN_MINUS
             | TOKEN_PLUS        => Rule::new(UNARY, BINARY , PREC_TERM),
             TOKEN_SLASH
@@ -371,6 +380,7 @@ impl<'a> Compiler<'a> {
             INTEGER => self.integer(),
             FLOAT => self.float(),
             VARIABLE => self.variable(),
+            BLOCKING=> self.block(),
             _ => {}
          }
     }
@@ -404,24 +414,38 @@ impl<'a> Compiler<'a> {
     }
 
     fn ifStatement(&mut self) {
-        self.consume(TOKEN_IF,"Expecting IF statement");
 
+        // The logical condition of the IF statement
         self.expression();
+        self.astPush(Ast::conditional) ;
         self.astPush(Ast::ifStmt) ;
-        self.block();
+
+        // If the condition is true, this is the code that would execute
+        self.expression();
+        self.astPush(Ast::whenFalse) ;
 
         if self.t_match(TOKEN_ELSE) {
-            self.astPush(Ast::Else) ;
-            self.block();
+            self.expression();
         }
+        self.astPush(Ast::ifEnd) ;
+    }
+
+    fn beginScope(&mut self) {
+        self.astPush(Ast::block) ;
+    }
+
+    fn endScope(&mut self) {
+        self.astPush(Ast::endBlock) ;
     }
 
     fn statement(&mut self) {
         if self.t_match(TOKEN_PRINT) {
             self.printStatement();
-        } else if self.t_match(TOKEN_LEFT_BRACE) {
+        } /*else if self.t_match(TOKEN_LEFT_BRACE) {
+            self.beginScope();
             self.block();
-        } else if self.t_match(TOKEN_IF) {
+            self.endScope();
+        } */else if self.t_match(TOKEN_IF) {
             self.ifStatement() ;
         } else {
             self.expression();
@@ -434,11 +458,8 @@ impl<'a> Compiler<'a> {
 
         // This is the variable name we just encountered
         let varname = self.parser.previous().name ;
-        // Are we about to assign a value?
-        let mut isAssigned = false ;
         if self.t_match(TOKEN_EQUAL) {
             self.expression() ;
-            isAssigned = true ;
             self.astPush(Ast::setVar {
                 varname: varname.clone(),
                 datatype: DataType::None

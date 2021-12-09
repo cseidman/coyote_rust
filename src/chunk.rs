@@ -61,6 +61,10 @@ pub enum OpCode {
     OP_JUMP_IF_FALSE,
     OP_JUMP,
     OP_SPRINT,
+    OP_IEQ,
+    OP_FEQ,
+    OP_SEQ,
+    OP_NOP,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -96,6 +100,10 @@ impl From<u8> for OpCode {
             27  => OP_JUMP_IF_FALSE,
             28  => OP_JUMP,
             29  => OP_SPRINT,
+            30  => OP_IEQ,
+            31  => OP_FEQ,
+            32  => OP_SEQ,
+            33  => OP_NOP,
             _   => OP_UNKNOWN,
         }
     }
@@ -119,12 +127,52 @@ impl Chunk {
     }
 }
 
+macro_rules! READ_OPERAND {
+            () => {
+                {
+                  let mut val:[u8;2] = Default::default();
+                  val.copy_from_slice(&self.chunk.code[self.ip..(self.ip+2)]) ;
+                  self.ip+=2;
+                  u16::from_le_bytes(val)
+                }
+            };
+        }
+
 pub fn initChunk(chunk: &mut Chunk) {
     chunk.code = Vec::new() ;
 }
 
 pub fn freeChunk(chunk: &mut Chunk) {
     initChunk(chunk) ;
+}
+
+pub fn currentLocation(chunk: &Chunk) -> usize {
+    chunk.code.len()-1
+}
+
+pub fn backPatch(chunk: &mut Chunk, opcode: OpCode, location: usize) {
+    let mut newLoc = location ;
+
+    loop {
+
+        let mut val:[u8;2] = Default::default();
+        val.copy_from_slice(&chunk.code[newLoc-2..newLoc]) ;
+        let loc =  u16::from_le_bytes(val) ;
+
+        if loc == 9999
+            && chunk.code[newLoc-3] == opcode as u8 {
+
+                let jumpLoc = (location-newLoc+1) as u16 ;
+                let b = jumpLoc.to_le_bytes() ;
+
+                chunk.code[newLoc-2] = b[0]  ;
+                chunk.code[newLoc-1] = b[1]  ;
+                break ;
+        }
+
+        newLoc-=1 ;
+
+    }
 }
 
 pub fn writeChunk(chunk: &mut Chunk, byte: u8, line: usize) {

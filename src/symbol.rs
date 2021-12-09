@@ -57,7 +57,6 @@ impl SymbolTable {
         name: String,
         datatype: DataType
     ) -> usize {
-
         let currentSlot = self.symbolLevel[self.level].symbols.len() ;
 
         let symb = Symbol {
@@ -73,6 +72,7 @@ impl SymbolTable {
 
     pub fn getSymbol(&self, name: String) -> Result<Symbol, &str> {
         let mut lvl = self.level ;
+
         loop {
 
             for symb in self.symbolLevel[lvl].symbols.iter() {

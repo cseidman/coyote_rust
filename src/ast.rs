@@ -1,11 +1,10 @@
 use crate::scanner::{TokenType} ;
 use TokenType::* ;
-use crate::chunk::{Chunk, writeChunk, OpCode, writeu16Chunk, addConstant};
+use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
 use crate::chunk::OpCode::*;
 use crate::compiler::* ;
 use crate::value::{Value};
 use std::env::var;
-
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum OpType {
@@ -72,11 +71,14 @@ pub enum Ast {
     statement {
         tokenType: TokenType
     },
+    conditional,
     print ,
     block,
     endBlock,
     ifStmt,
-    Else,
+    ifEnd,
+    whenTrue,
+    whenFalse,
     End
 }
 
@@ -85,15 +87,17 @@ pub enum Operator {
     Plus,
     Minus,
     Mul,
-    Div
+    Div,
+    Eq
 }
 impl Operator {
     fn emit(&self) -> String {
         match self {
-            Operator::Plus=>"ADD",
-            Operator::Minus=>"SUB",
-            Operator::Div=>"DIV",
-            Operator::Mul=>"MUL"
+            Operator::Plus  => "ADD",
+            Operator::Minus => "SUB",
+            Operator::Div   => "DIV",
+            Operator::Mul   => "MUL",
+            Operator::Eq    => "EQ"
         }.to_string()
     }
 }
@@ -141,10 +145,13 @@ pub enum Node {
     },
     Block,
     EndBlock,
-    ifStmt {
-        condition: Box<Node>
+    WhenTrue ,
+    WhenFalse ,
+    ifStmt ,
+    ifEnd,
+    conditional {
+        condition: Box<Node>,
     },
-    Else,
     End
 }
 
@@ -157,17 +164,12 @@ impl<'a> Compiler<'a> {
             };
         }
 
-        macro_rules! writeByte {
-            ($byte:expr) => {
-                writeChunk(self.chunk, $byte, 0)
-            };
-        }
-
         macro_rules! writeOperand {
             ($value:expr) => {
                 writeu16Chunk(self.chunk, $value, 0);
             };
         }
+
 
         match node {
             Node::Root { children: nodes } => {
@@ -198,21 +200,26 @@ impl<'a> Compiler<'a> {
             Node::BinaryExpr { op, lhs, rhs } => {
                 let l_type = self.walkTree(*lhs, level + 2);
                 let r_type = self.walkTree(*rhs, level + 2);
-                println!("{}{}", l_type.emit(), op.emit());
+
                 match format!("{}{}", l_type.emit(), op.emit()).as_str() {
-                    "IADD" => writeOp!(OP_IADD),
-                    "ISUB" => writeOp!(OP_ISUBTRACT),
-                    "IMUL" => writeOp!(OP_IMULTIPLY),
-                    "IDIV" => writeOp!(OP_IDIVIDE),
-                    "FADD" => writeOp!(OP_FADD),
-                    "FSUB" => writeOp!(OP_FSUBTRACT),
-                    "FMUL" => writeOp!(OP_FMULTIPLY),
-                    "FDIV" => writeOp!(OP_FDIVIDE),
+                    "IADD" => {writeOp!(OP_IADD); DataType::Integer},
+                    "ISUB" => {writeOp!(OP_ISUBTRACT);DataType::Integer},
+                    "IMUL" => {writeOp!(OP_IMULTIPLY);DataType::Integer},
+                    "IDIV" => {writeOp!(OP_IDIVIDE);DataType::Integer},
+
+                    "FADD" => {writeOp!(OP_FADD);DataType::Float},
+                    "FSUB" => {writeOp!(OP_FSUBTRACT);DataType::Float},
+                    "FMUL" => {writeOp!(OP_FMULTIPLY);DataType::Float},
+                    "FDIV" => {writeOp!(OP_FDIVIDE);DataType::Float},
+
+                    "IEQ"  => {writeOp!(OP_IEQ);DataType::Bool},
+                    "FEQ"  => {writeOp!(OP_FEQ);DataType::Bool},
+                    "SEQ"  => {writeOp!(OP_SEQ);DataType::Bool},
                     _ => {
-                        // TODO make an error
+                        DataType::None
                     }
                 }
-                l_type
+
             },
             Node::UnaryExpr { op, child } => {
                 let dataType = self.walkTree(*child, level + 2);
@@ -263,7 +270,6 @@ impl<'a> Compiler<'a> {
                 datatype,
                 child
             } => {
-
                 let symbol = self.getVariable(name) ;
                 let valueDataType = self.walkTree(*child, level + 2);
 
@@ -282,6 +288,7 @@ impl<'a> Compiler<'a> {
             Node::namedVar {
                 name
             } => {
+
                 let symbol = self.getVariable(name) ;
 
                  writeOp!(OP_LOADVAR);
@@ -300,26 +307,46 @@ impl<'a> Compiler<'a> {
                 DataType::None
             },
 
-            Node::ifStmt {
+            Node::conditional {
                 condition
             } => {
                 let dataType = self.walkTree(*condition, level + 2);
                 // This has to return a boolean
                 if dataType != DataType::Bool {
-                    panic!("IF statement must return a boolean");
+                    panic!("IF expression must return a boolean");
                 }
-                writeOp!(OP_JUMP_IF_FALSE);
-                writeOperand!(9999_u16);
-                // Tag where we are chunk-wise
-                let startLocation = self.chunk.code.len()-1;
+                //writeOp!(OP_JUMP_IF_FALSE) ;
+                //writeOperand!(9999_u16);
+                DataType::Bool
+            },
+
+            Node::WhenTrue => {
+                writeOp!(OP_NOP) ;
                 DataType::None
             },
 
-            Node::Else => {
-                writeOp!(OP_JUMP);
+            Node::WhenFalse => {
+                writeOp!(OP_JUMP) ;
                 writeOperand!(9999_u16);
+                let currentByte = currentLocation(&self.chunk);
+                backPatch(self.chunk, OP_JUMP_IF_FALSE, currentByte);
                 DataType::None
             },
+
+            Node::ifStmt  => {
+
+                writeOp!(OP_JUMP_IF_FALSE) ;
+                writeOperand!(9999_u16);
+
+                DataType::Nil
+            },
+
+            Node::ifEnd => {
+                let currentByte = currentLocation(&self.chunk);
+                backPatch(self.chunk, OP_JUMP, currentByte);
+                DataType::None
+            },
+
             Node::End => {
                 DataType::None
             },
@@ -407,7 +434,6 @@ impl<'a> Compiler<'a> {
                     varname,
                     assigned,
                 } => {
-
                     let declExpr = nodes.pop().unwrap() ;
                     let node = Node::VarDecl {
                         name: varname,
@@ -424,7 +450,6 @@ impl<'a> Compiler<'a> {
                 },
                 Ast::namedVar {
                     varname
-
                 } => {
                     let node = Node::namedVar {
                         name: varname
@@ -437,15 +462,29 @@ impl<'a> Compiler<'a> {
                 Ast::endBlock => {
                     nodes.push(Node::EndBlock);
                 },
-                Ast::ifStmt => {
-                    let cond = nodes.pop().unwrap() ;
-                    nodes.push(Node::ifStmt {
+                Ast::conditional => {
+                    let cond    = nodes.pop().unwrap() ;
+                    nodes.push(Node::conditional {
                         condition: Box::new(cond)
-                    });
+                    })
                 },
-                Ast::Else => {
-                    nodes.push(Node::Else);
+
+                Ast::whenTrue => {
+                    nodes.push(Node::WhenTrue);
                 },
+
+                Ast::whenFalse => {
+                    nodes.push(Node::WhenFalse);
+                },
+
+                Ast::ifStmt => {
+                    nodes.push(Node::ifStmt);
+                },
+
+                Ast::ifEnd => {
+                    nodes.push(Node::ifEnd);
+                },
+
                 Ast::End => {
                     nodes.push(Node::End);
                 },
