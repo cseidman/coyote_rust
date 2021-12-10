@@ -1,8 +1,8 @@
 
 let x = 10
 
-if x == 11 {
-    print 100
+if x==11 {
+    print "Ok"
 } else {
-    print 200
+    print "Not ok"
 }

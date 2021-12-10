@@ -71,6 +71,9 @@ pub enum Ast {
     statement {
         tokenType: TokenType
     },
+
+    and,
+    or,
     conditional,
     print ,
     block,
@@ -79,7 +82,9 @@ pub enum Ast {
     ifEnd,
     whenTrue,
     whenFalse,
-    End
+    endJump {
+        jumpType: u8
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -149,10 +154,14 @@ pub enum Node {
     WhenFalse ,
     ifStmt ,
     ifEnd,
+    and,
+    or,
+    endJump {
+        jumpType: u8
+    },
     conditional {
         condition: Box<Node>,
-    },
-    End
+    }
 }
 
 impl<'a> Compiler<'a> {
@@ -164,12 +173,19 @@ impl<'a> Compiler<'a> {
             };
         }
 
+        macro_rules! writeJump {
+            ($byte:expr) => {
+                writeChunk(self.chunk, $byte as u8, 0);
+                self.jumpStack.push(currentLocation(self.chunk));
+                writeOperand!(9999_u16);
+            };
+        }
+
         macro_rules! writeOperand {
             ($value:expr) => {
                 writeu16Chunk(self.chunk, $value, 0);
             };
         }
-
 
         match node {
             Node::Root { children: nodes } => {
@@ -297,6 +313,14 @@ impl<'a> Compiler<'a> {
                 symbol.datatype
             },
 
+            Node::and => {
+                writeOp!(OP_JUMP_IF_FALSE) ;
+                DataType::Bool
+            },
+            Node::or => {
+                DataType::Bool
+            },
+
             Node::Block => {
                 self.symbTable.pushLevel();
                 DataType::None
@@ -315,41 +339,43 @@ impl<'a> Compiler<'a> {
                 if dataType != DataType::Bool {
                     panic!("IF expression must return a boolean");
                 }
-                //writeOp!(OP_JUMP_IF_FALSE) ;
-                //writeOperand!(9999_u16);
                 DataType::Bool
             },
 
             Node::WhenTrue => {
-                writeOp!(OP_NOP) ;
+                //writeOp!(OP_NOP);
                 DataType::None
             },
 
             Node::WhenFalse => {
-                writeOp!(OP_JUMP) ;
-                writeOperand!(9999_u16);
-                let currentByte = currentLocation(&self.chunk);
-                backPatch(self.chunk, OP_JUMP_IF_FALSE, currentByte);
+
+                writeJump!(OP_JUMP) ;
+
+                let loc = self.jumpStack.pop().unwrap();
+                backPatch(self.chunk, OP_JUMP_IF_FALSE, loc);
+
                 DataType::None
             },
 
             Node::ifStmt  => {
-
-                writeOp!(OP_JUMP_IF_FALSE) ;
-                writeOperand!(9999_u16);
-
-                DataType::Nil
+                writeJump!(OP_JUMP_IF_FALSE) ;
+                DataType::None
             },
 
             Node::ifEnd => {
-                let currentByte = currentLocation(&self.chunk);
-                backPatch(self.chunk, OP_JUMP, currentByte);
+                let loc = self.jumpStack.pop().unwrap();
+                backPatch(self.chunk, OP_JUMP_IF_FALSE, loc);
                 DataType::None
             },
 
-            Node::End => {
+            Node::endJump {
+               jumpType
+            }=>{
+                let loc = self.jumpStack.pop().unwrap();
+                backPatch(self.chunk, OP_JUMP_IF_FALSE, loc);
                 DataType::None
             },
+
             Node::Print {
                 printExpr
             } => {
@@ -484,10 +510,20 @@ impl<'a> Compiler<'a> {
                 Ast::ifEnd => {
                     nodes.push(Node::ifEnd);
                 },
-
-                Ast::End => {
-                    nodes.push(Node::End);
+                Ast::and => {
+                    nodes.push(Node::and);
                 },
+                Ast::or => {
+                    nodes.push(Node::or);
+                },
+                Ast::endJump {
+                    jumpType
+                } => {
+                    nodes.push(Node::endJump {
+                        jumpType: 0
+                    })
+                },
+
                 Ast::print => {
                     let printExpr = nodes.pop().unwrap() ;
                     nodes.push(Node::Print {

@@ -35,7 +35,8 @@ enum ExpFunctions {
     LITERAL,
     STRING,
     VARIABLE,
-    BLOCKING
+    BLOCKING,
+    AND
 }
 
 use ExpFunctions::* ;
@@ -118,6 +119,8 @@ pub struct Compiler<'a>  {
 
     pub symbTable: SymbolTable,
 
+    pub jumpStack: Vec<usize>
+
 
 }
 
@@ -132,7 +135,7 @@ impl<'a> Compiler<'a> {
             localCount: 0,
             scopeDepth: 0,
             symbTable: SymbolTable::new(),
-
+            jumpStack: Vec::new()
         }
     }
 
@@ -230,6 +233,18 @@ impl<'a> Compiler<'a> {
         if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
         }
+    }
+
+    fn and_(&mut self) {
+        self.astPush(Ast::and);
+        self.parsePrecedence(PREC_AND);
+        self.astPush(Ast::endJump {
+            jumpType: 0
+        });
+    }
+
+    fn or_(&mut self) {
+
     }
 
     fn literal(&mut self) {
@@ -366,6 +381,7 @@ impl<'a> Compiler<'a> {
             | TOKEN_LESS
             | TOKEN_LESS_EQUAL  => Rule::new(NONE, BINARY, PREC_COMPARISON),
             | TOKEN_IDENTIFIER  => Rule::new(VARIABLE, NONE, PREC_NONE),
+            TOKEN_AND           => Rule::new(NONE, AND, PREC_AND),
             _                   => Rule::new(NONE, NONE, PREC_NONE )
         }
     }
@@ -380,7 +396,8 @@ impl<'a> Compiler<'a> {
             INTEGER => self.integer(),
             FLOAT => self.float(),
             VARIABLE => self.variable(),
-            BLOCKING=> self.block(),
+            BLOCKING => self.block(),
+            AND => self.and_(),
             _ => {}
          }
     }
@@ -405,9 +422,8 @@ impl<'a> Compiler<'a> {
             let infixRule = self.getRule(previous).infix ;
             self.execExpression(infixRule) ;
         }
-
     }
-
++
     fn printStatement(&mut self) {
         self.expression();
         self.astPush(Ast::print);
@@ -426,6 +442,8 @@ impl<'a> Compiler<'a> {
 
         if self.t_match(TOKEN_ELSE) {
             self.expression();
+            self.astPush(Ast::whenTrue) ;
+
         }
         self.astPush(Ast::ifEnd) ;
     }
@@ -441,11 +459,11 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.t_match(TOKEN_PRINT) {
             self.printStatement();
-        } /*else if self.t_match(TOKEN_LEFT_BRACE) {
+        /*} else if self.t_match(TOKEN_LEFT_BRACE) {
             self.beginScope();
             self.block();
-            self.endScope();
-        } */else if self.t_match(TOKEN_IF) {
+            self.endScope();*/
+        } else if self.t_match(TOKEN_IF) {
             self.ifStatement() ;
         } else {
             self.expression();
@@ -530,6 +548,8 @@ impl<'a> Compiler<'a> {
 
         let tree = self.buildTree() ;
         self.walkTree(tree, 1) ;
+
+        disassembleChunk(self.chunk, "Code") ;
 
         !self.parser.hadError
     }

@@ -127,17 +127,6 @@ impl Chunk {
     }
 }
 
-macro_rules! READ_OPERAND {
-            () => {
-                {
-                  let mut val:[u8;2] = Default::default();
-                  val.copy_from_slice(&self.chunk.code[self.ip..(self.ip+2)]) ;
-                  self.ip+=2;
-                  u16::from_le_bytes(val)
-                }
-            };
-        }
-
 pub fn initChunk(chunk: &mut Chunk) {
     chunk.code = Vec::new() ;
 }
@@ -151,28 +140,13 @@ pub fn currentLocation(chunk: &Chunk) -> usize {
 }
 
 pub fn backPatch(chunk: &mut Chunk, opcode: OpCode, location: usize) {
-    let mut newLoc = location ;
 
-    loop {
+    let currLoc = currentLocation(chunk);
+    let val = ((currLoc - location) as u16).to_le_bytes() ;
 
-        let mut val:[u8;2] = Default::default();
-        val.copy_from_slice(&chunk.code[newLoc-2..newLoc]) ;
-        let loc =  u16::from_le_bytes(val) ;
+    chunk.code[location+1] = val[0] ;
+    chunk.code[location+2] = val[1] ;
 
-        if loc == 9999
-            && chunk.code[newLoc-3] == opcode as u8 {
-
-                let jumpLoc = (location-newLoc+1) as u16 ;
-                let b = jumpLoc.to_le_bytes() ;
-
-                chunk.code[newLoc-2] = b[0]  ;
-                chunk.code[newLoc-1] = b[1]  ;
-                break ;
-        }
-
-        newLoc-=1 ;
-
-    }
 }
 
 pub fn writeChunk(chunk: &mut Chunk, byte: u8, line: usize) {

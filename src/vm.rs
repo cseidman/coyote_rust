@@ -259,7 +259,6 @@ impl VM<'_> {
                     }
                 },
                 OP_JUMP =>{
-                    //READ_OPERAND!();
                     self.ip += READ_OPERAND!() as usize;
                 },
                 OP_NOP => {
