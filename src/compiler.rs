@@ -255,7 +255,7 @@ impl<'a> Compiler<'a> {
             _ => self.astPush(Ast::literal {
                 label: "Nil".to_string(),
                 value: Value::nil,
-                dataType: DataType::Bool
+                dataType: DataType::Nil
             })
         }
     }
@@ -425,7 +425,6 @@ impl<'a> Compiler<'a> {
         self.astPush(Ast::backpatch {
             jumpType: JumpType::jumpIfFalse
         });
-
     }
 
     fn or_(&mut self) {
@@ -442,7 +441,6 @@ impl<'a> Compiler<'a> {
     fn ifStatement(&mut self) {
 
         self.expression();
-        //self.astPush(Ast::conditional) ;
 
         self.astPush(Ast::jumpIfFalse {popType: POP} ) ;
         self.declaration();
@@ -461,11 +459,11 @@ impl<'a> Compiler<'a> {
     }
 
     fn beginScope(&mut self) {
-        //self.astPush(Ast::block) ;
+        self.astPush(Ast::block) ;
     }
 
     fn endScope(&mut self) {
-        //self.astPush(Ast::endBlock) ;
+        self.astPush(Ast::endBlock) ;
     }
 
     fn statement(&mut self) {

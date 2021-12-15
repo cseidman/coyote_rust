@@ -82,7 +82,6 @@ pub enum Ast {
     statement {
         tokenType: TokenType
     },
-    conditional,
     print ,
     block,
     endBlock,
@@ -167,12 +166,7 @@ pub enum Node {
     },
 
     Block,
-    EndBlock {
-        commands: Vec<Node>
-    },
-    conditional {
-        condition: Box<Node>,
-    },
+    EndBlock,
     jumpIfFalse {
         popType: JumpPop
     } ,
@@ -190,16 +184,6 @@ impl<'a> Compiler<'a> {
         macro_rules! writeOp {
             ($byte:expr) => {
                 writeChunk(self.chunk, $byte as u8, 0)
-            };
-        }
-
-        macro_rules! writeJump {
-            ($byte:expr) => { {
-                    writeChunk(self.chunk, $byte as u8, 0);
-                    let loc = currentLocation(self.chunk) ;
-                    writeOperand!(9999_u16);
-                    loc
-                }
             };
         }
 
@@ -235,6 +219,7 @@ impl<'a> Compiler<'a> {
                 }
                 dataType
             },
+
             Node::BinaryExpr { op, lhs, rhs } => {
                 let l_type = self.walkTree(*lhs, level + 2);
                 let r_type = self.walkTree(*rhs, level + 2);
@@ -269,13 +254,14 @@ impl<'a> Compiler<'a> {
                     "ILTEQ"  => {writeOp!(OP_ILTEQ);DataType::Bool},
                     "FLTEQ"  => {writeOp!(OP_FLTEQ);DataType::Bool},
                     "SLTEQ"  => {writeOp!(OP_SLTEQ);DataType::Bool},
+
                     _ => {
                         self.errorAtCurrent("Binary operator not found!");
                         DataType::None
                     }
                 }
-
             },
+
             Node::UnaryExpr { op, child } => {
                 let dataType = self.walkTree(*child, level + 2);
                 match op {
@@ -295,6 +281,7 @@ impl<'a> Compiler<'a> {
                 }
                 dataType
             },
+
             Node::Statement {
                 tokenType
             } => {
@@ -357,29 +344,9 @@ impl<'a> Compiler<'a> {
                 DataType::None
             },
 
-            Node::EndBlock {
-                commands
-            } => {
-
-                for c in commands {
-                    self.walkTree(c, level + 2);
-                }
-                writeOp!(OP_JUMP);
-                writeOperand!(9999_u16);
+            Node::EndBlock => {
                 self.symbTable.popLevel();
                 DataType::None
-            },
-
-            Node::conditional {
-                condition
-            } => {
-
-                let dataType = self.walkTree(*condition, level + 2);
-                if dataType != DataType::Bool {
-                    self.errorAtCurrent("IF expression must return a boolean");
-                }
-
-                DataType::Bool
             },
 
             Node::jumpIfFalse {
@@ -411,6 +378,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::jump  => {
+
                 writeOp!(OP_JUMP);
                 writeOperand!(9999_u16) ;
                 let loc = currentLocation(&self.chunk) -2;
@@ -538,37 +506,13 @@ impl<'a> Compiler<'a> {
                     nodes.push(Node::Block);
                 },
                 Ast::endBlock => {
-
-                    let mut endBlock = Vec::<Node>::new();
-                    loop {
-                        let node = nodes.last().unwrap().clone();
-                        match node {
-                            Node::Block => {
-                                break ;
-                            },
-                            _ => {
-                                endBlock.push(nodes.pop().unwrap()) ;
-                            }
-                        }
-
-                    }
-                    endBlock.reverse() ;
-                    nodes.push(Node::EndBlock {
-                        commands: endBlock
-                    });
-                },
-                Ast::conditional => {
-
-                    let condition = nodes.pop().unwrap() ;
-
-                    nodes.push(Node::conditional {
-                        condition: Box::new(condition)
-                    })
+                    nodes.push(Node::EndBlock);
                 },
 
                 Ast::jumpIfFalse {
                     popType
                 } => {
+
                     nodes.push(Node::jumpIfFalse {
                         popType
                     }) ;

@@ -1,16 +1,13 @@
-
 let x = 10
-let y = 20
-let z = 100
-
-if y==20 and z == 100 {
-    if x == 101 {
-        print "Good!"
-    } else {
-        print "Oops!"
-    }
-    print "Done"
-} else {
-    print "Nada"
-    print "All is well"
+{
+    let x = x
+    x = x +5
+    print x
 }
+let y = 20
+{
+    let x = 7
+    print x
+}
+
+print x + y

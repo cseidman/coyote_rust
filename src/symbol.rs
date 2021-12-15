@@ -11,21 +11,24 @@ pub struct Symbol {
 #[derive(Clone)]
 pub struct SymbolLevel {
     symbols: Vec<Symbol>,
-    level: usize
+    level: usize,
+    nextSlot: usize
 }
 
 impl SymbolLevel {
     pub fn new() -> Self {
         Self {
             symbols: Vec::new(),
-            level: 0
+            level: 0,
+            nextSlot: 0
         }
     }
 }
 #[derive(Clone)]
 pub struct SymbolTable {
     symbolLevel: Vec<SymbolLevel>,
-    level: usize
+    level: usize,
+    nextSlot: usize
 }
 
 impl SymbolTable {
@@ -34,7 +37,8 @@ impl SymbolTable {
 
         let mut t= SymbolTable {
            symbolLevel: Vec::new(),
-           level: 0
+           level: 0,
+           nextSlot: 0
         };
 
         // Creates an empty slot for the top level variables
@@ -43,8 +47,11 @@ impl SymbolTable {
     }
 
     pub fn pushLevel(&mut self) {
-        self.symbolLevel.push(SymbolLevel::new()) ;
+        let mut symbLevel = SymbolLevel::new() ;
+        symbLevel.nextSlot = self.symbolLevel[self.level].nextSlot ;
+        self.symbolLevel.push(symbLevel) ;
         self.level+=1 ;
+
     }
 
     pub fn popLevel(&mut self) {
@@ -57,7 +64,8 @@ impl SymbolTable {
         name: String,
         datatype: DataType
     ) -> usize {
-        let currentSlot = self.symbolLevel[self.level].symbols.len() ;
+        let currentSlot = self.symbolLevel[self.level].nextSlot ;
+        self.symbolLevel[self.level].nextSlot+=1 ;
 
         let symb = Symbol {
             name,
@@ -72,7 +80,7 @@ impl SymbolTable {
 
     pub fn getSymbol(&self, name: String) -> Result<Symbol, &str> {
         let mut lvl = self.level ;
-
+        println!("Level {}", lvl) ;
         loop {
 
             for symb in self.symbolLevel[lvl].symbols.iter() {

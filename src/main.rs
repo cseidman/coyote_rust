@@ -32,6 +32,7 @@ use std::io::{self,stdin,stdout,Write};
 use std::fmt::Error;
 use std::borrow::{BorrowMut, Borrow};
 use clap::{Arg, App};
+use std::ops::Add;
 
 fn main() -> ! {
 
@@ -93,7 +94,8 @@ pub fn ReadSource(filePath: &str) -> String {
         panic!() ;
     }
 
-    fs::read_to_string(filePath).expect("Unable to read source file")
+    let code = fs::read_to_string(filePath).expect("Unable to read source file") ;
+    code.add("\n")
 }
 
 
