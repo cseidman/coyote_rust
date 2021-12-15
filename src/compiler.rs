@@ -142,6 +142,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
+
     // Symbol table operations
     pub fn addVariable(&mut self, varname: String, datatype: DataType) -> usize {
         self.symbTable.addSymbol(varname, datatype)
@@ -418,6 +419,8 @@ impl<'a> Compiler<'a> {
 
     fn and_(&mut self) {
         self.astPush(Ast::jumpIfFalse {popType:NOPOP} ) ;
+        self.astPush(Ast::pop);
+
         self.parsePrecedence(PREC_AND);
         self.astPush(Ast::backpatch {
             jumpType: JumpType::jumpIfFalse
@@ -426,7 +429,14 @@ impl<'a> Compiler<'a> {
     }
 
     fn or_(&mut self) {
+        self.astPush(Ast::jumpIfFalse {popType:NOPOP} ) ;
+        self.astPush(Ast::jump ) ;
+
+        self.astPush(Ast::backpatch {jumpType: JumpType::jumpIfFalse});
+        self.astPush(Ast::pop);
+
         self.parsePrecedence(PREC_OR);
+        self.astPush(Ast::backpatch {jumpType: JumpType::Jump});
     }
 
     fn ifStatement(&mut self) {

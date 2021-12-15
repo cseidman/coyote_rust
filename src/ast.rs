@@ -92,7 +92,8 @@ pub enum Ast {
     jump ,
     backpatch {
         jumpType: JumpType
-    }
+    },
+    pop
 }
 
 #[derive(Debug, Clone)]
@@ -178,7 +179,8 @@ pub enum Node {
     jump ,
     backpatch {
         jumpType: JumpType
-    }
+    },
+    pop
 }
 
 impl<'a> Compiler<'a> {
@@ -391,9 +393,6 @@ impl<'a> Compiler<'a> {
                 let loc = currentLocation(&self.chunk) -2;
                 self.jumpifFalse.push(loc);
 
-                if popType == JumpPop::NOPOP {
-                    writeOp!(OP_POP);
-                }
                 DataType::None
             },
 
@@ -416,6 +415,11 @@ impl<'a> Compiler<'a> {
                 writeOperand!(9999_u16) ;
                 let loc = currentLocation(&self.chunk) -2;
                 self.jump.push(loc) ;
+                DataType::None
+            },
+
+            Node::pop => {
+                writeOp!(OP_POP);
                 DataType::None
             },
 
@@ -580,6 +584,10 @@ impl<'a> Compiler<'a> {
                     nodes.push(Node::backpatch {
                         jumpType
                     });
+                },
+
+                Ast::pop => {
+                    nodes.push(Node::pop)
                 },
 
                 Ast::print => {
