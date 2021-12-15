@@ -220,6 +220,22 @@ impl VM<'_> {
                 OP_FEQ => {CPFPOP!(==)},
                 OP_SEQ => {CPSPOP!(==)},
 
+                OP_IGT => {CPIPOP!(>)},
+                OP_FGT => {CPFPOP!(>)},
+                OP_SGT => {CPSPOP!(>)},
+
+                OP_ILT => {CPIPOP!(<)},
+                OP_FLT => {CPFPOP!(<)},
+                OP_SLT => {CPSPOP!(<)},
+
+                OP_IGTEQ => {CPIPOP!(>=)},
+                OP_FGTEQ => {CPFPOP!(>=)},
+                OP_SGTEQ => {CPSPOP!(>=)},
+
+                OP_ILTEQ => {CPIPOP!(<=)},
+                OP_FLTEQ => {CPFPOP!(<=)},
+                OP_SLTEQ => {CPSPOP!(<=)},
+
                 OP_NOT => {
                   let value = !self.pop().get_bool();
                   self.push(Value::logical(value)) ;
@@ -254,6 +270,17 @@ impl VM<'_> {
 
                     let logicalResult = self.pop().get_bool() ;
                     let jumpto = READ_OPERAND!() as usize;
+
+                    if !logicalResult {
+                        self.ip += jumpto ;
+                    }
+                },
+
+                OP_JUMP_IF_FALSE_NOPOP => {
+
+                    let logicalResult = self.peek(0).get_bool() ;
+                    let jumpto = READ_OPERAND!() as usize;
+
                     if !logicalResult {
                         self.ip += jumpto ;
                     }
@@ -261,8 +288,9 @@ impl VM<'_> {
                 OP_JUMP =>{
                     self.ip += READ_OPERAND!() as usize;
                 },
-                OP_NOP => {
-
+                OP_NOP => {},
+                OP_POP => {
+                    self.pop();
                 }
                 _ => {return INTERPRET_OK}
             }

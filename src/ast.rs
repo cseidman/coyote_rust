@@ -5,6 +5,19 @@ use crate::chunk::OpCode::*;
 use crate::compiler::* ;
 use crate::value::{Value};
 use std::env::var;
+use crate::ast::Ast::backpatch;
+
+#[derive(Clone, Debug)]
+pub enum JumpType {
+    jumpIfFalse,
+    Jump
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum JumpPop {
+    POP,
+    NOPOP
+}
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum OpType {
@@ -40,19 +53,17 @@ impl DataType {
 
 #[derive(Clone)]
 pub enum Ast {
+
     literal {
-        tokenType: TokenType,
         label: String,
         value: Value,
         dataType: DataType
     },
     binop {
-        tokenType: TokenType,
         label: String,
         operator: Operator
     },
     unaryOp {
-        tokenType: TokenType,
         label: String,
         operator: Operator
     },
@@ -71,19 +82,16 @@ pub enum Ast {
     statement {
         tokenType: TokenType
     },
-
-    and,
-    or,
     conditional,
     print ,
     block,
     endBlock,
-    ifStmt,
-    ifEnd,
-    whenTrue,
-    whenFalse,
-    endJump {
-        jumpType: u8
+    jumpIfFalse {
+        popType: JumpPop
+    } ,
+    jump ,
+    backpatch {
+        jumpType: JumpType
     }
 }
 
@@ -93,7 +101,11 @@ pub enum Operator {
     Minus,
     Mul,
     Div,
-    Eq
+    Eq,
+    Gt,
+    Lt,
+    GtEq,
+    LtEq
 }
 impl Operator {
     fn emit(&self) -> String {
@@ -102,12 +114,16 @@ impl Operator {
             Operator::Minus => "SUB",
             Operator::Div   => "DIV",
             Operator::Mul   => "MUL",
-            Operator::Eq    => "EQ"
+            Operator::Eq    => "EQ",
+            Operator::Gt    => "GT",
+            Operator::Lt    => "LT",
+            Operator::GtEq  => "GTEQ",
+            Operator::LtEq  => "LTEQ"
         }.to_string()
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Node {
     Value {
         label: String,
@@ -148,24 +164,26 @@ pub enum Node {
     Print {
         printExpr: Box<Node>
     },
+
     Block,
-    EndBlock,
-    WhenTrue ,
-    WhenFalse ,
-    ifStmt ,
-    ifEnd,
-    and,
-    or,
-    endJump {
-        jumpType: u8
+    EndBlock {
+        commands: Vec<Node>
     },
     conditional {
         condition: Box<Node>,
+    },
+    jumpIfFalse {
+        popType: JumpPop
+    } ,
+    jump ,
+    backpatch {
+        jumpType: JumpType
     }
 }
 
 impl<'a> Compiler<'a> {
 
+   
     pub fn walkTree(&mut self, node: Node, level: usize) -> DataType {
         macro_rules! writeOp {
             ($byte:expr) => {
@@ -174,10 +192,12 @@ impl<'a> Compiler<'a> {
         }
 
         macro_rules! writeJump {
-            ($byte:expr) => {
-                writeChunk(self.chunk, $byte as u8, 0);
-                self.jumpStack.push(currentLocation(self.chunk));
-                writeOperand!(9999_u16);
+            ($byte:expr) => { {
+                    writeChunk(self.chunk, $byte as u8, 0);
+                    let loc = currentLocation(self.chunk) ;
+                    writeOperand!(9999_u16);
+                    loc
+                }
             };
         }
 
@@ -231,7 +251,24 @@ impl<'a> Compiler<'a> {
                     "IEQ"  => {writeOp!(OP_IEQ);DataType::Bool},
                     "FEQ"  => {writeOp!(OP_FEQ);DataType::Bool},
                     "SEQ"  => {writeOp!(OP_SEQ);DataType::Bool},
+
+                    "IGT"  => {writeOp!(OP_IGT);DataType::Bool},
+                    "FGT"  => {writeOp!(OP_FGT);DataType::Bool},
+                    "SGT"  => {writeOp!(OP_SGT);DataType::Bool},
+
+                    "ILT"  => {writeOp!(OP_ILT);DataType::Bool},
+                    "FLT"  => {writeOp!(OP_FLT);DataType::Bool},
+                    "SLT"  => {writeOp!(OP_SLT);DataType::Bool},
+
+                    "IGTEQ"  => {writeOp!(OP_IGTEQ);DataType::Bool},
+                    "FGTEQ"  => {writeOp!(OP_FGTEQ);DataType::Bool},
+                    "SGTEQ"  => {writeOp!(OP_SGTEQ);DataType::Bool},
+
+                    "ILTEQ"  => {writeOp!(OP_ILTEQ);DataType::Bool},
+                    "FLTEQ"  => {writeOp!(OP_FLTEQ);DataType::Bool},
+                    "SLTEQ"  => {writeOp!(OP_SLTEQ);DataType::Bool},
                     _ => {
+                        self.errorAtCurrent("Binary operator not found!");
                         DataType::None
                     }
                 }
@@ -313,20 +350,20 @@ impl<'a> Compiler<'a> {
                 symbol.datatype
             },
 
-            Node::and => {
-                writeOp!(OP_JUMP_IF_FALSE) ;
-                DataType::Bool
-            },
-            Node::or => {
-                DataType::Bool
-            },
-
             Node::Block => {
                 self.symbTable.pushLevel();
                 DataType::None
             },
 
-            Node::EndBlock => {
+            Node::EndBlock {
+                commands
+            } => {
+
+                for c in commands {
+                    self.walkTree(c, level + 2);
+                }
+                writeOp!(OP_JUMP);
+                writeOperand!(9999_u16);
                 self.symbTable.popLevel();
                 DataType::None
             },
@@ -334,45 +371,51 @@ impl<'a> Compiler<'a> {
             Node::conditional {
                 condition
             } => {
+
                 let dataType = self.walkTree(*condition, level + 2);
-                // This has to return a boolean
                 if dataType != DataType::Bool {
-                    panic!("IF expression must return a boolean");
+                    self.errorAtCurrent("IF expression must return a boolean");
                 }
+
                 DataType::Bool
             },
 
-            Node::WhenTrue => {
-                //writeOp!(OP_NOP);
+            Node::jumpIfFalse {
+                popType
+            } => {
+                match popType {
+                    JumpPop::POP => writeOp!(OP_JUMP_IF_FALSE),
+                    JumpPop::NOPOP => writeOp!(OP_JUMP_IF_FALSE_NOPOP),
+                }
+                writeOperand!(9999_u16) ;
+                let loc = currentLocation(&self.chunk) -2;
+                self.jumpifFalse.push(loc);
+
+                if popType == JumpPop::NOPOP {
+                    writeOp!(OP_POP);
+                }
                 DataType::None
             },
 
-            Node::WhenFalse => {
+            Node::backpatch {
+                jumpType
+            } => {
 
-                writeJump!(OP_JUMP) ;
+                let location = match jumpType {
+                    JumpType::jumpIfFalse => self.jumpifFalse.pop().unwrap() ,
+                    JumpType::Jump => self.jump.pop().unwrap()
+                } ;
 
-                let loc = self.jumpStack.pop().unwrap();
-                backPatch(self.chunk, OP_JUMP_IF_FALSE, loc);
+                backPatch(&mut self.chunk, location);
 
                 DataType::None
             },
 
-            Node::ifStmt  => {
-                writeJump!(OP_JUMP_IF_FALSE) ;
-                DataType::None
-            },
-
-            Node::ifEnd => {
-                let loc = self.jumpStack.pop().unwrap();
-                backPatch(self.chunk, OP_JUMP_IF_FALSE, loc);
-                DataType::None
-            },
-
-            Node::endJump {
-               jumpType
-            }=>{
-                let loc = self.jumpStack.pop().unwrap();
-                backPatch(self.chunk, OP_JUMP_IF_FALSE, loc);
+            Node::jump  => {
+                writeOp!(OP_JUMP);
+                writeOperand!(9999_u16) ;
+                let loc = currentLocation(&self.chunk) -2;
+                self.jump.push(loc) ;
                 DataType::None
             },
 
@@ -386,6 +429,7 @@ impl<'a> Compiler<'a> {
                 }
                 datatype
             },
+
             Node::Return {
                 returnVal
             } => {
@@ -408,7 +452,6 @@ impl<'a> Compiler<'a> {
             let e = self.ast[i].clone();
             match e {
                 Ast::literal {
-                    tokenType,
                     label,
                     value,
                     dataType
@@ -420,7 +463,10 @@ impl<'a> Compiler<'a> {
                     };
                     nodes.push(node);
                 },
-                Ast::binop { tokenType, label, operator } => {
+                Ast::binop {
+                    label,
+                    operator
+                } => {
                     let node = Node::BinaryExpr {
                         op: operator,
                         rhs: Box::new(nodes.pop().unwrap()),
@@ -428,7 +474,9 @@ impl<'a> Compiler<'a> {
                     };
                     nodes.push(node);
                 },
-                Ast::unaryOp { tokenType, label, operator } => {
+                Ast::unaryOp {label,
+                    operator
+                } => {
                     let node = Node::UnaryExpr {
                         op: operator,
                         child: Box::new(nodes.pop().unwrap()),
@@ -486,42 +534,52 @@ impl<'a> Compiler<'a> {
                     nodes.push(Node::Block);
                 },
                 Ast::endBlock => {
-                    nodes.push(Node::EndBlock);
+
+                    let mut endBlock = Vec::<Node>::new();
+                    loop {
+                        let node = nodes.last().unwrap().clone();
+                        match node {
+                            Node::Block => {
+                                break ;
+                            },
+                            _ => {
+                                endBlock.push(nodes.pop().unwrap()) ;
+                            }
+                        }
+
+                    }
+                    endBlock.reverse() ;
+                    nodes.push(Node::EndBlock {
+                        commands: endBlock
+                    });
                 },
                 Ast::conditional => {
-                    let cond    = nodes.pop().unwrap() ;
+
+                    let condition = nodes.pop().unwrap() ;
+
                     nodes.push(Node::conditional {
-                        condition: Box::new(cond)
+                        condition: Box::new(condition)
                     })
                 },
 
-                Ast::whenTrue => {
-                    nodes.push(Node::WhenTrue);
+                Ast::jumpIfFalse {
+                    popType
+                } => {
+                    nodes.push(Node::jumpIfFalse {
+                        popType
+                    }) ;
                 },
 
-                Ast::whenFalse => {
-                    nodes.push(Node::WhenFalse);
+                Ast::jump => {
+                    nodes.push(Node::jump);
                 },
 
-                Ast::ifStmt => {
-                    nodes.push(Node::ifStmt);
-                },
-
-                Ast::ifEnd => {
-                    nodes.push(Node::ifEnd);
-                },
-                Ast::and => {
-                    nodes.push(Node::and);
-                },
-                Ast::or => {
-                    nodes.push(Node::or);
-                },
-                Ast::endJump {
+                Ast::backpatch {
                     jumpType
                 } => {
-                    nodes.push(Node::endJump {
-                        jumpType: 0
-                    })
+                    nodes.push(Node::backpatch {
+                        jumpType
+                    });
                 },
 
                 Ast::print => {

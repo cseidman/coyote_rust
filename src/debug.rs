@@ -47,6 +47,18 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_IEQ
         | OpCode::OP_FEQ
         | OpCode::OP_SEQ
+        | OpCode::OP_IGT
+        | OpCode::OP_FGT
+        | OpCode::OP_SGT
+        | OpCode::OP_ILT
+        | OpCode::OP_FLT
+        | OpCode::OP_SLT
+        | OpCode::OP_IGTEQ
+        | OpCode::OP_FGTEQ
+        | OpCode::OP_SGTEQ
+        | OpCode::OP_ILTEQ
+        | OpCode::OP_FLTEQ
+        | OpCode::OP_SLTEQ
         | OpCode::OP_EQUAL
         | OpCode::OP_GREATER
         | OpCode::OP_LESS
@@ -63,11 +75,13 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_NIL
         | OpCode::OP_TRUE
         | OpCode::OP_NOP
+        | OpCode::OP_POP
         | OpCode::OP_FALSE
         | OpCode::OP_SPRINT
         | OpCode::OP_PRINT => simpleInstruction(display!(instruction), offset),
         OpCode::OP_PUSH
         | OpCode::OP_JUMP_IF_FALSE
+        | OpCode::OP_JUMP_IF_FALSE_NOPOP
         | OpCode::OP_JUMP
         | OpCode::OP_LOADVAR
         | OpCode::OP_SETVAR => valueInstruction(display!(instruction),  chunk, offset),

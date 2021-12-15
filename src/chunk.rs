@@ -1,6 +1,7 @@
 use crate::chunk::OpCode::*;
 use crate::value::{ValueArray, writeValueArray, Value};
 use crate::heapvalue::{MemPool, HeapValue, HeapValueArray};
+use crate::ast::JumpType;
 /*
 const OP_UNKNOWN:u8 = 0;
 const OP_RETURN:u8 = 1;
@@ -65,6 +66,20 @@ pub enum OpCode {
     OP_FEQ,
     OP_SEQ,
     OP_NOP,
+    OP_POP,
+    OP_IGT,
+    OP_FGT,
+    OP_SGT,
+    OP_ILT,
+    OP_FLT,
+    OP_SLT,
+    OP_IGTEQ,
+    OP_FGTEQ,
+    OP_SGTEQ,
+    OP_ILTEQ,
+    OP_FLTEQ,
+    OP_SLTEQ,
+    OP_JUMP_IF_FALSE_NOPOP,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -104,6 +119,20 @@ impl From<u8> for OpCode {
             31  => OP_FEQ,
             32  => OP_SEQ,
             33  => OP_NOP,
+            34  => OP_POP,
+            35  => OP_IGT,
+            36  => OP_FGT,
+            37  => OP_SGT,
+            38  => OP_ILT,
+            39  => OP_FLT,
+            40  => OP_SLT,
+            41  => OP_IGTEQ,
+            42  => OP_FGTEQ,
+            43  => OP_SGTEQ,
+            44  => OP_ILTEQ,
+            45  => OP_FLTEQ,
+            46  => OP_SLTEQ,
+            47  => OP_JUMP_IF_FALSE_NOPOP,
             _   => OP_UNKNOWN,
         }
     }
@@ -139,10 +168,10 @@ pub fn currentLocation(chunk: &Chunk) -> usize {
     chunk.code.len()-1
 }
 
-pub fn backPatch(chunk: &mut Chunk, opcode: OpCode, location: usize) {
+pub fn backPatch(chunk: &mut Chunk, location: usize) {
 
     let currLoc = currentLocation(chunk);
-    let val = ((currLoc - location) as u16).to_le_bytes() ;
+    let val = ((currLoc - location-2) as u16).to_le_bytes() ;
 
     chunk.code[location+1] = val[0] ;
     chunk.code[location+2] = val[1] ;

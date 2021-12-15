@@ -1,5 +1,5 @@
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, writeU64Chunk, addStringConstant, getStringConstant};
+use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, writeU64Chunk, addStringConstant, getStringConstant, backPatch};
 use crate::value::{Value};
 use crate::scanner::*;
 use TokenType::* ;
@@ -36,13 +36,16 @@ enum ExpFunctions {
     STRING,
     VARIABLE,
     BLOCKING,
-    AND
+    AND,
+    OR
 }
 
 use ExpFunctions::* ;
 use crate::debug::{disassembleInstruction, disassembleChunk};
 use std::env::var;
 use std::collections::HashMap;
+use crate::ast::JumpType::Jump;
+use crate::ast::JumpPop::{NOPOP, POP};
 
 struct Rule {
     prefix: ExpFunctions,
@@ -119,9 +122,8 @@ pub struct Compiler<'a>  {
 
     pub symbTable: SymbolTable,
 
-    pub jumpStack: Vec<usize>
-
-
+    pub jumpifFalse: Vec<usize>,
+    pub jump: Vec<usize>
 }
 
 impl<'a> Compiler<'a> {
@@ -135,7 +137,8 @@ impl<'a> Compiler<'a> {
             localCount: 0,
             scopeDepth: 0,
             symbTable: SymbolTable::new(),
-            jumpStack: Vec::new()
+            jumpifFalse: Vec::new(),
+            jump: Vec::new()
         }
     }
 
@@ -235,34 +238,20 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn and_(&mut self) {
-        self.astPush(Ast::and);
-        self.parsePrecedence(PREC_AND);
-        self.astPush(Ast::endJump {
-            jumpType: 0
-        });
-    }
-
-    fn or_(&mut self) {
-
-    }
 
     fn literal(&mut self) {
         match self.parser.previous().tokenType {
             TOKEN_FALSE => self.astPush(Ast::literal {
-                tokenType: TokenType::TOKEN_FALSE,
                 label: "False".to_string(),
                 value: Value::logical(false),
                 dataType: DataType::Bool
             }),
             TOKEN_TRUE => self.astPush(Ast::literal {
-                tokenType: TokenType::TOKEN_TRUE,
                 label: "True".to_string(),
                 value: Value::logical(true),
                 dataType: DataType::Bool
             }),
             _ => self.astPush(Ast::literal {
-                tokenType: TokenType::TOKEN_NIL,
                 label: "Nil".to_string(),
                 value: Value::nil,
                 dataType: DataType::Bool
@@ -274,7 +263,6 @@ impl<'a> Compiler<'a> {
         let strVal = self.parser.previous().name ;
         let value = addStringConstant(self.chunk, strVal.clone()) as i64;
         self.astPush(Ast::literal {
-            tokenType: TokenType::TOKEN_STRING,
             label: strVal,
             value: Value::integer(value) ,
             dataType: DataType::String
@@ -285,7 +273,6 @@ impl<'a> Compiler<'a> {
         let strVal = self.parser.previous().name ;
         let integer = i64::from_str(strVal.as_str()).unwrap() ;
         self.astPush(Ast::literal {
-            tokenType: TokenType::TOKEN_INTEGER,
             label: strVal,
             value: Value::integer(integer) ,
             dataType: DataType::Integer
@@ -297,7 +284,6 @@ impl<'a> Compiler<'a> {
         let float = f64::from_str(strVal.as_str()).unwrap() ;
 
         self.astPush(Ast::literal {
-            tokenType: TokenType::TOKEN_FLOAT,
             label: strVal,
             value: Value::float(float) ,
             dataType: DataType::Float
@@ -324,12 +310,10 @@ impl<'a> Compiler<'a> {
         let operator = match operatorType {
             TOKEN_PLUS  =>  Operator::Plus,
             TOKEN_MINUS =>  Operator::Minus,
-            // TODO: Panic here
-            _ => {Operator::Plus}
+            _ => panic!("Unary operator {:?} not found!", operatorType)
         };
 
         self.astPush(Ast::unaryOp {
-            tokenType: operatorType,
             label: token.name,
             operator
         });
@@ -348,22 +332,23 @@ impl<'a> Compiler<'a> {
             TOKEN_STAR => Operator::Mul,
             TOKEN_SLASH => Operator::Div,
             TOKEN_EQUAL_EQUAL => Operator::Eq,
-            // TODO: Panic here
-            _ => Operator::Plus
+            TOKEN_GREATER => Operator::Gt,
+            TOKEN_LESS => Operator::Lt,
+            TOKEN_GREATER_EQUAL => Operator::GtEq,
+            TOKEN_LESS_EQUAL => Operator::LtEq,
+            _ => panic!("Operator {:?} not found!", operatorType)
         } ;
 
         self.astPush(Ast::binop {
-            tokenType: operatorType,
             label: token.name,
             operator
         });
-
     }
 
     fn getRule(&mut self, tokenType: TokenType) -> Rule {
         match tokenType {
             TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_NONE),
-            TOKEN_LEFT_BRACE    => Rule::new(BLOCKING, NONE, PREC_NONE),
+            //TOKEN_LEFT_BRACE    => Rule::new(BLOCKING, NONE, PREC_NONE),
             TOKEN_MINUS
             | TOKEN_PLUS        => Rule::new(UNARY, BINARY , PREC_TERM),
             TOKEN_SLASH
@@ -382,6 +367,7 @@ impl<'a> Compiler<'a> {
             | TOKEN_LESS_EQUAL  => Rule::new(NONE, BINARY, PREC_COMPARISON),
             | TOKEN_IDENTIFIER  => Rule::new(VARIABLE, NONE, PREC_NONE),
             TOKEN_AND           => Rule::new(NONE, AND, PREC_AND),
+            TOKEN_OR           => Rule::new(NONE, OR, PREC_AND),
             _                   => Rule::new(NONE, NONE, PREC_NONE )
         }
     }
@@ -396,8 +382,9 @@ impl<'a> Compiler<'a> {
             INTEGER => self.integer(),
             FLOAT => self.float(),
             VARIABLE => self.variable(),
-            BLOCKING => self.block(),
+            //BLOCKING => self.block(),
             AND => self.and_(),
+            OR => self.or_(),
             _ => {}
          }
     }
@@ -423,46 +410,61 @@ impl<'a> Compiler<'a> {
             self.execExpression(infixRule) ;
         }
     }
-+
+
     fn printStatement(&mut self) {
         self.expression();
         self.astPush(Ast::print);
     }
 
+    fn and_(&mut self) {
+        self.astPush(Ast::jumpIfFalse {popType:NOPOP} ) ;
+        self.parsePrecedence(PREC_AND);
+        self.astPush(Ast::backpatch {
+            jumpType: JumpType::jumpIfFalse
+        });
+
+    }
+
+    fn or_(&mut self) {
+        self.parsePrecedence(PREC_OR);
+    }
+
     fn ifStatement(&mut self) {
 
-        // The logical condition of the IF statement
         self.expression();
-        self.astPush(Ast::conditional) ;
-        self.astPush(Ast::ifStmt) ;
+        //self.astPush(Ast::conditional) ;
 
-        // If the condition is true, this is the code that would execute
-        self.expression();
-        self.astPush(Ast::whenFalse) ;
+        self.astPush(Ast::jumpIfFalse {popType: POP} ) ;
+        self.declaration();
+        self.astPush(Ast::jump) ;
+
+        self.astPush(Ast::backpatch {
+            jumpType: JumpType::jumpIfFalse
+        });
 
         if self.t_match(TOKEN_ELSE) {
-            self.expression();
-            self.astPush(Ast::whenTrue) ;
-
+            self.declaration();
         }
-        self.astPush(Ast::ifEnd) ;
+        self.astPush(Ast::backpatch {
+            jumpType: JumpType::Jump
+        });
     }
 
     fn beginScope(&mut self) {
-        self.astPush(Ast::block) ;
+        //self.astPush(Ast::block) ;
     }
 
     fn endScope(&mut self) {
-        self.astPush(Ast::endBlock) ;
+        //self.astPush(Ast::endBlock) ;
     }
 
     fn statement(&mut self) {
         if self.t_match(TOKEN_PRINT) {
             self.printStatement();
-        /*} else if self.t_match(TOKEN_LEFT_BRACE) {
+        } else if self.t_match(TOKEN_LEFT_BRACE) {
             self.beginScope();
             self.block();
-            self.endScope();*/
+            self.endScope();
         } else if self.t_match(TOKEN_IF) {
             self.ifStatement() ;
         } else {
@@ -506,7 +508,6 @@ impl<'a> Compiler<'a> {
             isAssigned = true ;
         } else {
             self.astPush(Ast::literal {
-                tokenType: TokenType::TOKEN_NIL,
                 label: "nil".to_string(),
                 value: Value::nil,
                 dataType: DataType::None

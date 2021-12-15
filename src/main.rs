@@ -23,6 +23,7 @@ mod common;
 mod ast;
 mod memory;
 mod symbol;
+mod bookmark;
 
 use std::fs ;
 use std::path::*;
