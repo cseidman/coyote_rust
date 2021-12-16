@@ -24,6 +24,7 @@ mod ast;
 mod memory;
 mod symbol;
 mod bookmark;
+mod ilcode;
 
 use std::fs ;
 use std::path::*;
