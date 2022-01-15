@@ -4,18 +4,14 @@ use crate::value::{printValue, Value} ;
 use crate::debug::* ;
 use crate::compiler::{Compiler};
 use crate::common::{boolAsf64};
+use crate::errors::{InterpretResult} ;
+use InterpretResult::* ;
 
 use OpCode::* ;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::io::{stderr, Write} ;
-
-pub enum InterpretResult {
-    INTERPRET_OK,
-    INTERPRET_COMPILE_ERROR,
-    INTERPRET_RUNTIME_ERROR
-}
 
 pub struct Frame<'a> {
     slots: &'a [Value],
@@ -77,8 +73,11 @@ impl VM<'_> {
     }
 
     pub fn interpret(&mut self, source: String) -> InterpretResult {
-        self.Compile(source) ;
-        self.run()
+        let compileResult = self.Compile(source) ;
+        if compileResult == INTERPRET_OK {
+            return self.run();
+        }
+        compileResult
     }
 
     pub fn debug(&self) {

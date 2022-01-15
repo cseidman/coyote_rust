@@ -1,11 +1,15 @@
-use crate::scanner::{TokenType} ;
+use crate::scanner::{TokenType, Token} ;
 use TokenType::* ;
 use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
 use crate::chunk::OpCode::*;
 use crate::compiler::* ;
 use crate::value::{Value};
 use std::env::var;
-use crate::ast::Ast::backpatch;
+use Ast::* ;
+use std::str::{FromStr};
+
+use crate::errors::{InterpretResult, ReportError};
+use InterpretResult::* ;
 
 #[derive(Clone, Debug)]
 pub enum JumpType {
@@ -95,6 +99,53 @@ pub enum Ast {
     pop
 }
 
+impl Ast {
+
+    pub fn makeNil() ->  Ast {
+        Ast::literal {
+            label: "Nil".to_string(),
+            value: Value::nil,
+            dataType: DataType::Nil
+        }
+    }
+
+    pub fn makeFalse() -> Ast {
+        Ast::literal {
+            label: "False".to_string(),
+            value: Value::logical(false),
+            dataType: DataType::Bool
+        }
+    }
+
+    pub fn makeTrue() -> Ast {
+        Ast::literal {
+            label: "True".to_string(),
+            value: Value::logical(true),
+            dataType: DataType::Bool
+        }
+    }
+
+    pub fn makeInteger(token: Token) -> Ast {
+        let strVal = token.name ;
+        let integer = i64::from_str(strVal.as_str()).unwrap() ;
+        Ast::literal {
+            label: strVal,
+            value: Value::integer(integer) ,
+            dataType: DataType::Integer
+        }
+    }
+
+    pub fn makeFloat(token: Token) -> Ast {
+        let strVal = token.name ;
+        let float = f64::from_str(strVal.as_str()).unwrap() ;
+        Ast::literal {
+            label: strVal,
+            value: Value::float(float) ,
+            dataType: DataType::Float
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Operator {
     Plus,
@@ -178,7 +229,6 @@ pub enum Node {
 }
 
 impl<'a> Compiler<'a> {
-
    
     pub fn walkTree(&mut self, node: Node, level: usize) -> DataType {
         macro_rules! writeOp {
@@ -224,6 +274,11 @@ impl<'a> Compiler<'a> {
                 let l_type = self.walkTree(*lhs, level + 2);
                 let r_type = self.walkTree(*rhs, level + 2);
 
+                // Check for compatible matching types
+                if l_type != r_type {
+                    ReportError(format!("Incompatible datatypes: {:?} and {:?}", l_type, r_type));
+                }
+
                 match format!("{}{}", l_type.emit(), op.emit()).as_str() {
                     "IADD" => {writeOp!(OP_IADD); DataType::Integer},
                     "ISUB" => {writeOp!(OP_ISUBTRACT);DataType::Integer},
@@ -264,6 +319,7 @@ impl<'a> Compiler<'a> {
 
             Node::UnaryExpr { op, child } => {
                 let dataType = self.walkTree(*child, level + 2);
+
                 match op {
                     Operator::Minus => {
                         match dataType {
@@ -356,8 +412,11 @@ impl<'a> Compiler<'a> {
                     JumpPop::POP => writeOp!(OP_JUMP_IF_FALSE),
                     JumpPop::NOPOP => writeOp!(OP_JUMP_IF_FALSE_NOPOP),
                 }
+                // Bogus operand which we know will be overwritten
+                // at the next backpatch
                 writeOperand!(9999_u16) ;
-                let loc = currentLocation(&self.chunk) -2;
+
+                let loc = currentLocation(self.chunk) -2;
                 self.jumpifFalse.push(loc);
 
                 DataType::None
@@ -372,7 +431,7 @@ impl<'a> Compiler<'a> {
                     JumpType::Jump => self.jump.pop().unwrap()
                 } ;
 
-                backPatch(&mut self.chunk, location);
+                backPatch(self.chunk, location);
 
                 DataType::None
             },
@@ -381,7 +440,7 @@ impl<'a> Compiler<'a> {
 
                 writeOp!(OP_JUMP);
                 writeOperand!(9999_u16) ;
-                let loc = currentLocation(&self.chunk) -2;
+                let loc = currentLocation(self.chunk) -2;
                 self.jump.push(loc) ;
                 DataType::None
             },

@@ -8,6 +8,16 @@ use OpCode::*;
 use std::str::{FromStr};
 use crate::ast::* ;
 use crate::symbol::{SymbolTable, Symbol};
+use crate::errors::InterpretResult ;
+
+use ExpFunctions::* ;
+use crate::debug::{disassembleInstruction, disassembleChunk};
+use std::env::var;
+use std::collections::HashMap;
+
+use crate::ast::Ast ;
+use Ast::* ;
+use crate::ast::JumpPop::{NOPOP, POP};
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -39,13 +49,6 @@ enum ExpFunctions {
     AND,
     OR
 }
-
-use ExpFunctions::* ;
-use crate::debug::{disassembleInstruction, disassembleChunk};
-use std::env::var;
-use std::collections::HashMap;
-use crate::ast::JumpType::Jump;
-use crate::ast::JumpPop::{NOPOP, POP};
 
 struct Rule {
     prefix: ExpFunctions,
@@ -150,10 +153,10 @@ impl<'a> Compiler<'a> {
 
     pub fn getVariable(&mut self, varname: String) -> Symbol {
         let symb = self.symbTable.getSymbol(varname.clone()) ;
-        if symb.is_err() {
-            panic!("Cannot find variable {}", varname.clone()) ;
-        } else {
+        if let Ok(..) = symb {
             symb.unwrap()
+        } else {
+            panic!("Cannot find variable {}", varname) ;
         }
     }
 
@@ -239,29 +242,19 @@ impl<'a> Compiler<'a> {
         }
     }
 
-
     fn literal(&mut self) {
-        match self.parser.previous().tokenType {
-            TOKEN_FALSE => self.astPush(Ast::literal {
-                label: "False".to_string(),
-                value: Value::logical(false),
-                dataType: DataType::Bool
-            }),
-            TOKEN_TRUE => self.astPush(Ast::literal {
-                label: "True".to_string(),
-                value: Value::logical(true),
-                dataType: DataType::Bool
-            }),
-            _ => self.astPush(Ast::literal {
-                label: "Nil".to_string(),
-                value: Value::nil,
-                dataType: DataType::Nil
-            })
+        let token = self.parser.previous();
+        match token.tokenType {
+            TOKEN_FALSE => self.astPush(Ast::makeFalse()),
+            TOKEN_TRUE => self.astPush(Ast::makeTrue()),
+            TOKEN_NIL => self.astPush(Ast::makeNil()),
+            _ => self.errorAtCurrent("Unknown literal")
         }
     }
 
     fn text(&mut self) {
-        let strVal = self.parser.previous().name ;
+        let token = self.parser.previous() ;
+        let strVal = token.name ;
         let value = addStringConstant(self.chunk, strVal.clone()) as i64;
         self.astPush(Ast::literal {
             label: strVal,
@@ -271,24 +264,13 @@ impl<'a> Compiler<'a> {
     }
 
     fn integer(&mut self) {
-        let strVal = self.parser.previous().name ;
-        let integer = i64::from_str(strVal.as_str()).unwrap() ;
-        self.astPush(Ast::literal {
-            label: strVal,
-            value: Value::integer(integer) ,
-            dataType: DataType::Integer
-        });
+        let token = self.parser.previous() ;
+        self.astPush(Ast::makeInteger(token));
     }
 
     fn float(&mut self) {
-        let strVal = self.parser.previous().name ;
-        let float = f64::from_str(strVal.as_str()).unwrap() ;
-
-        self.astPush(Ast::literal {
-            label: strVal,
-            value: Value::float(float) ,
-            dataType: DataType::Float
-        });
+        let token = self.parser.previous() ;
+        self.astPush(Ast::makeFloat(token));
     }
 
     fn grouping(&mut self) {
@@ -489,7 +471,7 @@ impl<'a> Compiler<'a> {
         if self.t_match(TOKEN_EQUAL) {
             self.expression() ;
             self.astPush(Ast::setVar {
-                varname: varname.clone(),
+                varname,
                 datatype: DataType::None
             });
         } else {
@@ -508,22 +490,19 @@ impl<'a> Compiler<'a> {
 
         // This is the location of the variable in the constants table we just allocated
         self.advance();
-        let varname = self.parser.previous().name ;
+        let token = self.parser.previous() ;
+        let varname = token.name ;
         let mut isAssigned = false ;
 
         if self.t_match(TOKEN_EQUAL) {
             self.expression() ;
             isAssigned = true ;
         } else {
-            self.astPush(Ast::literal {
-                label: "nil".to_string(),
-                value: Value::nil,
-                dataType: DataType::None
-            });
+            self.astPush(Ast::makeNil());
         }
 
         self.astPush(Ast::varDecl {
-            varname: varname.clone(),
+            varname,
             assigned: isAssigned
         });
 
@@ -532,7 +511,6 @@ impl<'a> Compiler<'a> {
     fn parseVariable(&mut self, errorMessage: &'static str)  {
         self.consume(TOKEN_IDENTIFIER, errorMessage) ;
         self.namedVariable() ;
-
     }
 
     fn declaration(&mut self) {
