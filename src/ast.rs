@@ -5,7 +5,6 @@ use crate::chunk::OpCode::*;
 use crate::compiler::* ;
 use crate::value::{Value};
 use std::env::var;
-use Ast::* ;
 use std::str::{FromStr};
 
 use crate::errors::{InterpretResult, ReportError};
@@ -55,97 +54,6 @@ impl DataType {
     }
 }
 
-#[derive(Clone)]
-pub enum Ast {
-
-    literal {
-        label: String,
-        value: Value,
-        dataType: DataType
-    },
-    binop {
-        label: String,
-        operator: Operator
-    },
-    unaryOp {
-        label: String,
-        operator: Operator
-    },
-    setVar {
-        varname: String,
-        datatype: DataType
-    },
-    varDecl {
-        varname: String ,
-        assigned: bool
-    },
-    namedVar {
-        varname: String
-    },
-    ret ,
-    statement {
-        tokenType: TokenType
-    },
-    print ,
-    block,
-    endBlock,
-    jumpIfFalse {
-        popType: JumpPop
-    } ,
-    jump ,
-    backpatch {
-        jumpType: JumpType
-    },
-    pop
-}
-
-impl Ast {
-
-    pub fn makeNil() ->  Ast {
-        Ast::literal {
-            label: "Nil".to_string(),
-            value: Value::nil,
-            dataType: DataType::Nil
-        }
-    }
-
-    pub fn makeFalse() -> Ast {
-        Ast::literal {
-            label: "False".to_string(),
-            value: Value::logical(false),
-            dataType: DataType::Bool
-        }
-    }
-
-    pub fn makeTrue() -> Ast {
-        Ast::literal {
-            label: "True".to_string(),
-            value: Value::logical(true),
-            dataType: DataType::Bool
-        }
-    }
-
-    pub fn makeInteger(token: Token) -> Ast {
-        let strVal = token.name ;
-        let integer = i64::from_str(strVal.as_str()).unwrap() ;
-        Ast::literal {
-            label: strVal,
-            value: Value::integer(integer) ,
-            dataType: DataType::Integer
-        }
-    }
-
-    pub fn makeFloat(token: Token) -> Ast {
-        let strVal = token.name ;
-        let float = f64::from_str(strVal.as_str()).unwrap() ;
-        Ast::literal {
-            label: strVal,
-            value: Value::float(float) ,
-            dataType: DataType::Float
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum Operator {
     Plus,
@@ -177,6 +85,7 @@ impl Operator {
 #[derive(Clone, Debug)]
 pub enum Node {
     Value {
+        line: usize,
         label: String,
         value: Value,
         dataType: DataType
@@ -250,7 +159,7 @@ impl<'a> Compiler<'a> {
                 }
                 DataType::None
             }
-            Node::Value { label, value, dataType } => {
+            Node::Value { line: usize, label, value, dataType } => {
                 match dataType {
                     DataType::Nil => {
                         writeOp!(OP_NIL);
@@ -472,136 +381,4 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    pub fn buildTree(&mut self ) -> Node {
-        println!("** Tree **");
-
-        let mut nodes = Vec::<Node>::new();
-
-        let len = self.ast.len();
-
-        for i in 0..len {
-            let e = self.ast[i].clone();
-            match e {
-                Ast::literal {
-                    label,
-                    value,
-                    dataType
-                } => {
-                    let node = Node::Value {
-                        label,
-                        value,
-                        dataType
-                    };
-                    nodes.push(node);
-                },
-                Ast::binop {
-                    label,
-                    operator
-                } => {
-                    let node = Node::BinaryExpr {
-                        op: operator,
-                        rhs: Box::new(nodes.pop().unwrap()),
-                        lhs: Box::new(nodes.pop().unwrap())
-                    };
-                    nodes.push(node);
-                },
-                Ast::unaryOp {label,
-                    operator
-                } => {
-                    let node = Node::UnaryExpr {
-                        op: operator,
-                        child: Box::new(nodes.pop().unwrap()),
-                    };
-                    nodes.push(node);
-                },
-                Ast::statement { tokenType } => {
-                    let node = Node::Statement {
-                        tokenType
-                    };
-                    nodes.push(node);
-                },
-
-                Ast::setVar {
-                    varname,
-                    datatype
-                } => {
-
-                    let childVal = nodes.pop().unwrap() ;
-
-                    nodes.push(Node::setVar {
-                        name: varname,
-                        datatype,
-                        child: Box::new(childVal)
-                    });
-                },
-
-                Ast::varDecl {
-                    varname,
-                    assigned,
-                } => {
-                    let declExpr = nodes.pop().unwrap() ;
-                    let node = Node::VarDecl {
-                        name: varname,
-                        assigned,
-                        varExpr: Box::new(declExpr)
-                    };
-                    nodes.push(node);
-                },
-                Ast::ret => {
-                    let retVal = nodes.pop().unwrap() ;
-                    nodes.push(Node::Return {
-                        returnVal: Box::new(retVal)
-                    });
-                },
-                Ast::namedVar {
-                    varname
-                } => {
-                    let node = Node::namedVar {
-                        name: varname
-                    };
-                    nodes.push(node);
-                },
-                Ast::block => {
-                    nodes.push(Node::Block);
-                },
-                Ast::endBlock => {
-                    nodes.push(Node::EndBlock);
-                },
-
-                Ast::jumpIfFalse {
-                    popType
-                } => {
-
-                    nodes.push(Node::jumpIfFalse {
-                        popType
-                    }) ;
-                },
-
-                Ast::jump => {
-                    nodes.push(Node::jump);
-                },
-
-                Ast::backpatch {
-                    jumpType
-                } => {
-                    nodes.push(Node::backpatch {
-                        jumpType
-                    });
-                },
-
-                Ast::pop => {
-                    nodes.push(Node::pop)
-                },
-
-                Ast::print => {
-                    let printExpr = nodes.pop().unwrap() ;
-                    nodes.push(Node::Print {
-                        printExpr: Box::new(printExpr)
-                    })
-                }
-            }
-        }
-        // Set the root node
-        Node::Root { children: nodes }
-    }
 }

@@ -15,8 +15,6 @@ use crate::debug::{disassembleInstruction, disassembleChunk};
 use std::env::var;
 use std::collections::HashMap;
 
-use crate::ast::Ast ;
-use Ast::* ;
 use crate::ast::JumpPop::{NOPOP, POP};
 
 const PREC_NONE: u8 = 0 ;
@@ -118,7 +116,7 @@ pub struct Compiler<'a>  {
     pub chunk: &'a mut Chunk,
     scanner: Scanner ,
     parser: Parser,
-    pub ast: Vec<Ast>,
+    pub nodes: Vec<Node>,
 
     pub localCount: usize,
     pub scopeDepth: usize,
@@ -136,7 +134,7 @@ impl<'a> Compiler<'a> {
             chunk,
             scanner: Scanner::new(source),
             parser: Parser::new(),
-            ast: Vec::new(),
+            nodes: Vec::new(),
             localCount: 0,
             scopeDepth: 0,
             symbTable: SymbolTable::new(),
@@ -160,8 +158,8 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn astPush(&mut self, ast: Ast ) {
-        self.ast.push(ast);
+    fn nodePush(&mut self, node: Node) {
+        self.nodes.push(node) ;
     }
 
     pub fn error(&mut self, message: &str) {
@@ -235,7 +233,10 @@ impl<'a> Compiler<'a> {
 
     fn endCompiler(&mut self) {
 
-        self.astPush(Ast::ret) ;
+        let retVal = self.nodes.pop().unwrap() ;
+        self.nodePush(Node::Return {
+            returnVal: Box::new(retVal)
+        });
 
         if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
@@ -244,33 +245,71 @@ impl<'a> Compiler<'a> {
 
     fn literal(&mut self) {
         let token = self.parser.previous();
+        let label= token.label.to_string();
+
         match token.tokenType {
-            TOKEN_FALSE => self.astPush(Ast::makeFalse()),
-            TOKEN_TRUE => self.astPush(Ast::makeTrue()),
-            TOKEN_NIL => self.astPush(Ast::makeNil()),
+            TOKEN_FALSE => self.nodePush(
+                Node::Value {
+                    line: token.line,
+                    label,
+                    value: Value::logical(false),
+                    dataType: DataType::Bool
+                }),
+           TOKEN_TRUE => self.nodePush(
+                Node::Value {
+                    line: token.line,
+                    label,
+                    value: Value::logical(true),
+                    dataType: DataType::Bool
+                }),
+            TOKEN_NIL => self.nodePush(
+                Node::Value {
+                    line: token.line,
+                    label,
+                    value: Value::nil,
+                    dataType: DataType::Nil
+                }),
             _ => self.errorAtCurrent("Unknown literal")
         }
     }
 
     fn text(&mut self) {
         let token = self.parser.previous() ;
-        let strVal = token.name ;
-        let value = addStringConstant(self.chunk, strVal.clone()) as i64;
-        self.astPush(Ast::literal {
-            label: strVal,
-            value: Value::integer(value) ,
-            dataType: DataType::String
+        let label = token.name ;
+        let ptr = addStringConstant(self.chunk, label.clone()) as i64;
+        self.nodePush(
+            Node::Value {
+                line: token.line,
+                label,
+                value: Value::integer(ptr),
+                dataType: DataType::String
         });
     }
 
     fn integer(&mut self) {
         let token = self.parser.previous() ;
-        self.astPush(Ast::makeInteger(token));
+        let label= token.name ;
+        let integer = i64::from_str(label.as_str()).unwrap() ;
+        self.nodePush(
+            Node::Value {
+                line: token.line,
+                label,
+                value: Value::integer(integer) ,
+                dataType: DataType::Integer
+            });
     }
 
     fn float(&mut self) {
         let token = self.parser.previous() ;
-        self.astPush(Ast::makeFloat(token));
+        let label= token.name ;
+        let float = f64::from_str(label.as_str()).unwrap() ;
+        self.nodePush(
+            Node::Value {
+                line: token.line,
+                label,
+                value: Value::float(float) ,
+                dataType: DataType::Float
+            });
     }
 
     fn grouping(&mut self) {
@@ -296,10 +335,11 @@ impl<'a> Compiler<'a> {
             _ => panic!("Unary operator {:?} not found!", operatorType)
         };
 
-        self.astPush(Ast::unaryOp {
-            label: token.name,
-            operator
-        });
+        let node = Node::UnaryExpr {
+            op: operator,
+            child: Box::new(self.nodes.pop().unwrap()),
+        };
+        self.nodePush(node);
     }
 
     fn binary(&mut self) {
@@ -322,10 +362,12 @@ impl<'a> Compiler<'a> {
             _ => panic!("Operator {:?} not found!", operatorType)
         } ;
 
-        self.astPush(Ast::binop {
-            label: token.name,
-            operator
-        });
+        let node = Node::BinaryExpr {
+            op: operator,
+            rhs: Box::new(self.nodes.pop().unwrap()),
+            lhs: Box::new(self.nodes.pop().unwrap())
+        };
+        self.nodePush(node);
     }
 
     fn getRule(&mut self, tokenType: TokenType) -> Rule {
@@ -396,56 +438,75 @@ impl<'a> Compiler<'a> {
 
     fn printStatement(&mut self) {
         self.expression();
-        self.astPush(Ast::print);
+        let printExpr = self.nodes.pop().unwrap() ;
+        self.nodePush(Node::Print {
+            printExpr: Box::new(printExpr)
+        })
     }
 
     fn and_(&mut self) {
-        self.astPush(Ast::jumpIfFalse {popType:NOPOP} ) ;
-        self.astPush(Ast::pop);
+
+        self.nodePush(Node::jumpIfFalse {
+            popType: JumpPop::NOPOP
+        }) ;
+
+        self.nodePush(Node::pop);
 
         self.parsePrecedence(PREC_AND);
-        self.astPush(Ast::backpatch {
+
+        self.nodePush(Node::backpatch {
             jumpType: JumpType::jumpIfFalse
         });
+
     }
 
     fn or_(&mut self) {
-        self.astPush(Ast::jumpIfFalse {popType:NOPOP} ) ;
-        self.astPush(Ast::jump ) ;
 
-        self.astPush(Ast::backpatch {jumpType: JumpType::jumpIfFalse});
-        self.astPush(Ast::pop);
+        self.nodePush(Node::jumpIfFalse {
+            popType: JumpPop::NOPOP
+        }) ;
+        self.nodePush(Node::jump);
+
+        self.nodePush(Node::backpatch {
+            jumpType: JumpType::jumpIfFalse
+        });
+        self.nodePush(Node::pop);
 
         self.parsePrecedence(PREC_OR);
-        self.astPush(Ast::backpatch {jumpType: JumpType::Jump});
+        self.nodePush(Node::backpatch {
+            jumpType: JumpType::Jump
+        });
+
     }
 
     fn ifStatement(&mut self) {
 
         self.expression();
 
-        self.astPush(Ast::jumpIfFalse {popType: POP} ) ;
+        self.nodePush(Node::jumpIfFalse {
+            popType: JumpPop::POP
+        }) ;
         self.declaration();
-        self.astPush(Ast::jump) ;
+        self.nodePush(Node::jump);
 
-        self.astPush(Ast::backpatch {
+        self.nodePush(Node::backpatch {
             jumpType: JumpType::jumpIfFalse
         });
 
         if self.t_match(TOKEN_ELSE) {
             self.declaration();
         }
-        self.astPush(Ast::backpatch {
-            jumpType: JumpType::Jump
+        self.nodePush(Node::backpatch {
+            jumpType: JumpType::jumpIfFalse
         });
     }
 
     fn beginScope(&mut self) {
-        self.astPush(Ast::block) ;
+        self.nodePush(Node::Block);
     }
 
     fn endScope(&mut self) {
-        self.astPush(Ast::endBlock) ;
+        self.nodePush(Node::EndBlock);
     }
 
     fn statement(&mut self) {
@@ -470,15 +531,21 @@ impl<'a> Compiler<'a> {
         let varname = self.parser.previous().name ;
         if self.t_match(TOKEN_EQUAL) {
             self.expression() ;
-            self.astPush(Ast::setVar {
-                varname,
-                datatype: DataType::None
+
+            let childVal = self.nodes.pop().unwrap() ;
+
+            self.nodePush(Node::setVar {
+                name: varname,
+                datatype: DataType::None,
+                child: Box::new(childVal)
             });
+
         } else {
             // If not, then it's being used as an expression
-            self.astPush(Ast::namedVar {
-                varname
-            });
+            let node = Node::namedVar {
+                name: varname
+            };
+            self.nodePush(node);
         }
     }
 
@@ -498,13 +565,23 @@ impl<'a> Compiler<'a> {
             self.expression() ;
             isAssigned = true ;
         } else {
-            self.astPush(Ast::makeNil());
+            // Assign NIL to the unassigned variable
+            self.nodePush(
+                Node::Value {
+                    line: token.line,
+                    label: varname.clone(),
+                    value: Value::nil,
+                    dataType: DataType::Nil
+                })
         }
 
-        self.astPush(Ast::varDecl {
-            varname,
-            assigned: isAssigned
-        });
+        let declExpr = self.nodes.pop().unwrap() ;
+        let node = Node::VarDecl {
+            name: varname,
+            assigned: isAssigned,
+            varExpr: Box::new(declExpr)
+        };
+        self.nodePush(node);
 
     }
 
@@ -532,8 +609,7 @@ impl<'a> Compiler<'a> {
         }
 
         self.endCompiler() ;
-
-        let tree = self.buildTree() ;
+        let tree = self.nodes[0].clone() ;
         self.walkTree(tree, 1) ;
 
         disassembleChunk(self.chunk, "Code") ;
