@@ -121,8 +121,6 @@ pub struct Compiler<'a>  {
     pub localCount: usize,
     pub scopeDepth: usize,
 
-    pub symbTable: SymbolTable,
-
     pub jumpifFalse: Vec<usize>,
     pub jump: Vec<usize>
 }
@@ -137,20 +135,22 @@ impl<'a> Compiler<'a> {
             nodes: Vec::new(),
             localCount: 0,
             scopeDepth: 0,
-            symbTable: SymbolTable::new(),
             jumpifFalse: Vec::new(),
             jump: Vec::new()
         }
     }
 
+    pub fn updateSource(&mut self, source: String) {
+        self.scanner.LoadSource(&source) ;
+    }
 
     // Symbol table operations
     pub fn addVariable(&mut self, varname: String, datatype: DataType) -> usize {
-        self.symbTable.addSymbol(varname, datatype)
+        self.chunk.symbTable.addSymbol(varname, datatype)
     }
 
     pub fn getVariable(&mut self, varname: String) -> Symbol {
-        let symb = self.symbTable.getSymbol(varname.clone()) ;
+        let symb = self.chunk.symbTable.getSymbol(varname.clone()) ;
         if let Ok(..) = symb {
             symb.unwrap()
         } else {
@@ -164,15 +164,16 @@ impl<'a> Compiler<'a> {
 
     pub fn error(&mut self, message: &str) {
         let token = self.parser.previous() ;
-        self.errorAt(token, message);
+        let line = token.line ;
+        self.errorAt(token, message, line);
     }
 
-    pub fn errorAt(&mut self, token: Token, message: &str) {
+    pub fn errorAt(&mut self, token: Token, message: &str, line: usize) {
         if self.parser.panicMode {
             return ;
         }
         self.parser.panicMode = true ;
-        let _ = stderr().write_fmt(format_args!("[line {}] Error", token.line)) ;
+        let _ = stderr().write_fmt(format_args!("[line {}] Error", line)) ;
 
         match token.tokenType {
             TOKEN_EOF => {
@@ -187,9 +188,18 @@ impl<'a> Compiler<'a> {
         self.parser.hadError = true ;
     }
 
+    pub fn errorAtAst(&mut self, message: &str, line: usize) {
+        let token = self.parser.current() ;
+        self.parser.panicMode = true ;
+        let _ = stderr().write_fmt(format_args!("[line {}] Error", line)) ;
+        let _ = stderr().write_fmt(format_args!(" {}\n", message)) ;
+        self.parser.hadError = true ;
+    }
+
     pub fn errorAtCurrent(&mut self, message: &str) {
         let token = self.parser.current() ;
-        self.errorAt(token, message);
+        let line = token.line ;
+        self.errorAt(token, message, line);
     }
 
     pub fn consume(&mut self, token_type: TokenType, message: &str) {
@@ -238,9 +248,6 @@ impl<'a> Compiler<'a> {
             returnVal: Box::new(retVal)
         });
 
-        if self.parser.hadError {
-            disassembleChunk(self.chunk, "code") ;
-        }
     }
 
     fn literal(&mut self) {
@@ -363,6 +370,7 @@ impl<'a> Compiler<'a> {
         } ;
 
         let node = Node::BinaryExpr {
+            line: token.line,
             op: operator,
             rhs: Box::new(self.nodes.pop().unwrap()),
             lhs: Box::new(self.nodes.pop().unwrap())
@@ -612,9 +620,13 @@ impl<'a> Compiler<'a> {
         let tree = self.nodes[0].clone() ;
         self.walkTree(tree, 1) ;
 
-        disassembleChunk(self.chunk, "Code") ;
+        if self.parser.hadError {
+            disassembleChunk(self.chunk, "code") ;
+        }
 
-        !self.parser.hadError
+        let result = self.parser.hadError ;
+        self.parser.hadError = false ;
+        !result
     }
 
 }

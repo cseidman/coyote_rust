@@ -11,7 +11,8 @@ use OpCode::* ;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::io::{stderr, Write} ;
+use std::io::{stderr, Write,self,stdin,stdout} ;
+use std::ops::Deref;
 
 pub struct Frame<'a> {
     slots: &'a [Value],
@@ -25,11 +26,11 @@ pub struct VM<'a> {
     stack: [Value;8000],
     stackTop: usize,
     
-    frames: Vec<Frame<'a>>
-    
+    frames: Vec<Frame<'a>>,
+
 }
 
-impl VM<'_> {
+impl<'a> VM<'a> {
 
     pub fn new() -> Self {
 
@@ -38,7 +39,7 @@ impl VM<'_> {
             ip: 0,
             stack:[Value::nil;8000],
             stackTop: 20,
-            frames: Vec::new()
+            frames: Vec::new(),
         }
     }
 
@@ -206,13 +207,17 @@ impl VM<'_> {
                 },
                 OP_GREATER => {CPIPOP!(>)},
                 OP_LESS => {CPIPOP!(<)},
+
                 OP_IADD => {IBINOP!(+)},
                 OP_FADD => {FBINOP!(+)},
+
                 OP_ISUBTRACT => {IBINOP!(-)},
                 OP_FSUBTRACT => {FBINOP!(-)},
+
                 OP_IMULTIPLY => {IBINOP!(*)},
                 OP_FMULTIPLY => {FBINOP!(*)},
-                OP_IDIVIDE => {IBINOP!(*)},
+
+                OP_IDIVIDE => {IBINOP!(/)},
                 OP_FDIVIDE => {FBINOP!(/)},
 
                 OP_IEQ => {CPIPOP!(==)},

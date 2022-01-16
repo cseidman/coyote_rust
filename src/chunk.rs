@@ -2,6 +2,7 @@ use crate::chunk::OpCode::*;
 use crate::value::{ValueArray, writeValueArray, Value};
 use crate::heapvalue::{MemPool, HeapValue, HeapValueArray};
 use crate::ast::JumpType;
+use crate::symbol::{SymbolTable};
 /*
 const OP_UNKNOWN:u8 = 0;
 const OP_RETURN:u8 = 1;
@@ -142,7 +143,8 @@ pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
     pub heapConstants: HeapValueArray,
-    pub lines: Vec<usize>
+    pub lines: Vec<usize>,
+    pub symbTable: SymbolTable,
 }
 
 impl Chunk {
@@ -151,6 +153,7 @@ impl Chunk {
             code: Vec::new(),
             constants: ValueArray::new(),
             heapConstants: HeapValueArray::new() ,
+            symbTable: SymbolTable::new(),
             lines: Vec::new()
         }
     }

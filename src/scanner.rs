@@ -66,7 +66,7 @@ impl Scanner {
             code: code_string,
             start: 0 ,
             current: 0,
-            line: 0,
+            line: 1,
             codeLength: *code_len
         }
     }
@@ -102,7 +102,10 @@ impl Scanner {
         }
 
         match c {
-            '\n'=>  self.makeToken(TOKEN_CR),
+            '\n'=>  {
+                self.line+=1 ;
+                self.makeToken(TOKEN_CR)
+            },
             '\0'=>  self.makeToken(TOKEN_EOF),
             '(' =>  self.makeToken(TOKEN_LEFT_PAREN),
             ')' =>  self.makeToken(TOKEN_RIGHT_PAREN),
@@ -277,7 +280,7 @@ impl Scanner {
 
         Token {
             tokenType: ttype,
-            line: 0,
+            line: self.line,
             name: slice.iter().clone().collect::<String>(),
             label: stringify!(ttype),
         }

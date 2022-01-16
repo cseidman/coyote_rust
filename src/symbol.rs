@@ -80,7 +80,6 @@ impl SymbolTable {
 
     pub fn getSymbol(&self, name: String) -> Result<Symbol, &str> {
         let mut lvl = self.level ;
-        println!("Level {}", lvl) ;
         loop {
 
             for symb in self.symbolLevel[lvl].symbols.iter() {

@@ -4,6 +4,7 @@ use crate::heapvalue::*;
 
 use std::fmt ;
 use std::fmt::{Formatter, Display};
+use std::io::{stderr, Write} ;
 use std::rc::Rc;
 use std::ops;
 use std::cmp ;
@@ -86,18 +87,22 @@ impl Display for Value {
 impl Value {
 
     pub fn get_integer(self) -> i64 {
-        if let Value::integer(x) = self {
-            x
-        } else {
-            panic!("Not an integer");
+        match self {
+            Value::integer(x) => x,
+            Value::float(x) => x as i64,
+            _ => {
+                panic!("Value is not a number") ;
+            }
         }
     }
 
     pub fn get_float(self) -> f64 {
-        if let Value::float(x) = self {
-            x
-        } else {
-            panic!("Not a float");
+        match self {
+            Value::float(x) => x,
+            Value::integer(x) => x as f64,
+            _ => {
+                panic!("Value is not a number") ;
+            }
         }
     }
 

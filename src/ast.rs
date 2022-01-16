@@ -95,6 +95,7 @@ pub enum Node {
         child: Box<Node>,
     },
     BinaryExpr {
+        line: usize,
         op: Operator,
         lhs: Box<Node>,
         rhs: Box<Node>,
@@ -179,13 +180,28 @@ impl<'a> Compiler<'a> {
                 dataType
             },
 
-            Node::BinaryExpr { op, lhs, rhs } => {
-                let l_type = self.walkTree(*lhs, level + 2);
+            Node::BinaryExpr {
+                line,
+                op,
+                lhs,
+                rhs
+            } => {
+
+                let mut l_type = self.walkTree(*lhs, level + 2);
                 let r_type = self.walkTree(*rhs, level + 2);
 
-                // Check for compatible matching types
                 if l_type != r_type {
-                    ReportError(format!("Incompatible datatypes: {:?} and {:?}", l_type, r_type));
+                    match (l_type, r_type) {
+                        (DataType::Float, DataType::Integer) => {},
+                        (DataType::Integer, DataType::Float) => {
+                            l_type = DataType::Float
+                        },
+                        _ => {
+                            let msg = format!("Incompatible datatypes: {:?} and {:?}"
+                                              , l_type, r_type);
+                            self.errorAtAst(msg.as_str(), line);
+                        }
+                    }
                 }
 
                 match format!("{}{}", l_type.emit(), op.emit()).as_str() {
@@ -305,12 +321,12 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Block => {
-                self.symbTable.pushLevel();
+                self.chunk.symbTable.pushLevel();
                 DataType::None
             },
 
             Node::EndBlock => {
-                self.symbTable.popLevel();
+                self.chunk.symbTable.popLevel();
                 DataType::None
             },
 

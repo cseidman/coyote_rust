@@ -74,6 +74,7 @@ pub fn runFile(filename: &str) {
 pub fn Repl() {
 
     let mut vm = VM::new() ;
+
     loop {
         let mut line=String::new();
         print!("> ");
@@ -87,6 +88,7 @@ pub fn Repl() {
 
         vm.interpret(line);
     }
+
 }
 
 pub fn ReadSource(filePath: &str) -> String {

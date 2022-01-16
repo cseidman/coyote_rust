@@ -5,6 +5,6 @@ pub enum InterpretResult {
     INTERPRET_RUNTIME_ERROR
 }
 
-pub fn ReportError(message: String) {
-    println!("Error: {}", message) ;
+pub fn ReportError(message: String, line: usize) {
+    println!("Line {}: Error: {}", line, message) ;
 }
