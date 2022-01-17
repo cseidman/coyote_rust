@@ -1,5 +1,5 @@
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, writeChunk, OpCode, addConstant, writeU64Chunk, addStringConstant, getStringConstant, backPatch};
+use crate::chunk::{Chunk, addStringConstant, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
 use crate::value::{Value};
 use crate::scanner::*;
 use TokenType::* ;
@@ -16,6 +16,7 @@ use std::env::var;
 use std::collections::HashMap;
 
 use crate::ast::JumpPop::{NOPOP, POP};
+use crate::ast::Node::Root;
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -128,11 +129,12 @@ pub struct Compiler<'a>  {
 impl<'a> Compiler<'a> {
 
     pub fn new(source: String, chunk: &'a mut Chunk) -> Self {
+
         Compiler {
             chunk,
             scanner: Scanner::new(source),
             parser: Parser::new(),
-            nodes: Vec::new(),
+            nodes: Vec::new() ,
             localCount: 0,
             scopeDepth: 0,
             jumpifFalse: Vec::new(),
@@ -343,6 +345,7 @@ impl<'a> Compiler<'a> {
         };
 
         let node = Node::UnaryExpr {
+            line: token.line,
             op: operator,
             child: Box::new(self.nodes.pop().unwrap()),
         };
@@ -366,6 +369,7 @@ impl<'a> Compiler<'a> {
             TOKEN_LESS => Operator::Lt,
             TOKEN_GREATER_EQUAL => Operator::GtEq,
             TOKEN_LESS_EQUAL => Operator::LtEq,
+            TOKEN_BANG_EQUAL => Operator::NEq,
             _ => panic!("Operator {:?} not found!", operatorType)
         } ;
 
@@ -393,12 +397,13 @@ impl<'a> Compiler<'a> {
             | TOKEN_TRUE
             | TOKEN_NIL         => Rule::new(LITERAL, NONE, PREC_NONE),
             TOKEN_BANG          => Rule::new(UNARY, NONE, PREC_NONE),
-            TOKEN_EQUAL_EQUAL   => Rule::new(NONE, BINARY, PREC_EQUALITY),
-            | TOKEN_GREATER
+            TOKEN_BANG_EQUAL
+            | TOKEN_EQUAL_EQUAL   => Rule::new(NONE, BINARY, PREC_EQUALITY),
+            TOKEN_GREATER
             | TOKEN_GREATER_EQUAL
             | TOKEN_LESS
             | TOKEN_LESS_EQUAL  => Rule::new(NONE, BINARY, PREC_COMPARISON),
-            | TOKEN_IDENTIFIER  => Rule::new(VARIABLE, NONE, PREC_NONE),
+            TOKEN_IDENTIFIER  => Rule::new(VARIABLE, NONE, PREC_NONE),
             TOKEN_AND           => Rule::new(NONE, AND, PREC_AND),
             TOKEN_OR           => Rule::new(NONE, OR, PREC_AND),
             _                   => Rule::new(NONE, NONE, PREC_NONE )
@@ -505,8 +510,33 @@ impl<'a> Compiler<'a> {
             self.declaration();
         }
         self.nodePush(Node::backpatch {
+            jumpType: JumpType::Jump
+        });
+    }
+
+    fn whileStatement(&mut self) {
+
+        self.nodePush(Node::While) ;
+        self.expression() ;
+        self.nodePush(Node::jumpIfFalse {
+            popType: JumpPop::POP
+        }) ;
+        self.declaration();
+        self.nodePush(Node::Loop) ;
+        self.nodePush(Node::backpatch {
             jumpType: JumpType::jumpIfFalse
         });
+
+
+
+    }
+
+    fn breakStatement(&mut self) {
+        self.nodePush(Node::jump);
+    }
+
+    fn continueStatement(&mut self) {
+
     }
 
     fn beginScope(&mut self) {
@@ -525,7 +555,13 @@ impl<'a> Compiler<'a> {
             self.block();
             self.endScope();
         } else if self.t_match(TOKEN_IF) {
-            self.ifStatement() ;
+            self.ifStatement();
+        } else if self.t_match(TOKEN_WHILE) {
+            self.whileStatement();
+        } else if self.t_match(TOKEN_BREAK) {
+            self.breakStatement() ;
+        } else if self.t_match(TOKEN_CONTINUE) {
+            self.continueStatement() ;
         } else {
             self.expression();
         }
@@ -606,6 +642,12 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    pub fn view_tree(&self) {
+        for t in &self.nodes {
+            println!("{:?}", t) ;
+        }
+    }
+
     pub fn compile(&mut self) -> bool {
         self.advance() ;
 
@@ -617,16 +659,309 @@ impl<'a> Compiler<'a> {
         }
 
         self.endCompiler() ;
-        let tree = self.nodes[0].clone() ;
-        self.walkTree(tree, 1) ;
 
-        if self.parser.hadError {
+        let tree = self.nodes.clone() ;
+        let startNode = Node::Root {
+            children: tree
+        };
+        self.nodes = vec![startNode];
+        self.walkTree(self.nodes[0].clone(), 1) ;
+
+        //if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
-        }
+        //}
 
         let result = self.parser.hadError ;
         self.parser.hadError = false ;
         !result
     }
+
+    /** AST Operations **/
+
+    pub fn walkTree(&mut self, node: Node, level: usize) -> DataType {
+        macro_rules! writeOp {
+            ($byte:expr, $line:expr) => {
+                writeChunk(self.chunk, $byte as u8, $line)
+            };
+        }
+
+        macro_rules! writeOperand {
+            ($value:expr) => {
+                writeu16Chunk(self.chunk, $value, 0);
+            };
+        }
+
+        match node {
+            Node::Root { children: nodes } => {
+                for n in nodes {
+                    self.walkTree(n, level);
+                }
+                DataType::None
+            }
+            Node::Value { line, label, value, dataType } => {
+                match dataType {
+                    DataType::Nil => {
+                        writeOp!(OP_NIL, line);
+                    },
+                    DataType::String => {
+                        let constant_index = value.get_integer() as u16;
+
+                        writeOp!(OP_SCONSTANT, line);
+                        writeOperand!(constant_index);
+                    },
+                    _ => {
+                        let constant_index = self.makeConstant(value);
+                        writeOp!(OP_CONSTANT, line);
+                        writeOperand!(constant_index);
+                    }
+                }
+                dataType
+            },
+
+            Node::BinaryExpr {
+                line,
+                op,
+                lhs,
+                rhs
+            } => {
+
+                let mut l_type = self.walkTree(*lhs, level + 2);
+                let r_type = self.walkTree(*rhs, level + 2);
+
+                if l_type != r_type {
+                    match (l_type, r_type) {
+                        (DataType::Float, DataType::Integer) => {},
+                        (DataType::Integer, DataType::Float) => {
+                            l_type = DataType::Float
+                        },
+                        _ => {
+                            let msg = format!("Incompatible datatypes: {:?} and {:?}"
+                                              , l_type, r_type);
+                            self.errorAtAst(msg.as_str(), line);
+                        }
+                    }
+                }
+
+                match format!("{}{}", l_type.emit(), op.emit()).as_str() {
+                    "IADD" => {writeOp!(OP_IADD, line); DataType::Integer},
+                    "ISUB" => {writeOp!(OP_ISUBTRACT, line);DataType::Integer},
+                    "IMUL" => {writeOp!(OP_IMULTIPLY, line);DataType::Integer},
+                    "IDIV" => {writeOp!(OP_IDIVIDE, line);DataType::Integer},
+
+                    "FADD" => {writeOp!(OP_FADD, line);DataType::Float},
+                    "FSUB" => {writeOp!(OP_FSUBTRACT, line);DataType::Float},
+                    "FMUL" => {writeOp!(OP_FMULTIPLY, line);DataType::Float},
+                    "FDIV" => {writeOp!(OP_FDIVIDE, line);DataType::Float},
+
+                    "IEQ"  => {writeOp!(OP_IEQ, line);DataType::Bool},
+                    "FEQ"  => {writeOp!(OP_FEQ, line);DataType::Bool},
+                    "SEQ"  => {writeOp!(OP_SEQ, line);DataType::Bool},
+
+                    "INEQ"  => {writeOp!(OP_INEQ, line);DataType::Bool},
+                    "FNEQ"  => {writeOp!(OP_FNEQ, line);DataType::Bool},
+                    "SNEQ"  => {writeOp!(OP_SNEQ, line);DataType::Bool},
+
+                    "IGT"  => {writeOp!(OP_IGT, line);DataType::Bool},
+                    "FGT"  => {writeOp!(OP_FGT, line);DataType::Bool},
+                    "SGT"  => {writeOp!(OP_SGT, line);DataType::Bool},
+
+                    "ILT"  => {writeOp!(OP_ILT, line);DataType::Bool},
+                    "FLT"  => {writeOp!(OP_FLT, line);DataType::Bool},
+                    "SLT"  => {writeOp!(OP_SLT, line);DataType::Bool},
+
+                    "IGTEQ"  => {writeOp!(OP_IGTEQ, line);DataType::Bool},
+                    "FGTEQ"  => {writeOp!(OP_FGTEQ, line);DataType::Bool},
+                    "SGTEQ"  => {writeOp!(OP_SGTEQ, line);DataType::Bool},
+
+                    "ILTEQ"  => {writeOp!(OP_ILTEQ, line);DataType::Bool},
+                    "FLTEQ"  => {writeOp!(OP_FLTEQ, line);DataType::Bool},
+                    "SLTEQ"  => {writeOp!(OP_SLTEQ, line);DataType::Bool},
+
+                    _ => {
+                        self.errorAtCurrent("Binary operator not found!");
+                        DataType::None
+                    }
+                }
+            },
+
+            Node::UnaryExpr { line, op, child } => {
+                let dataType = self.walkTree(*child, level + 2);
+
+                match op {
+                    Operator::Minus => {
+                        match dataType {
+                            DataType::Integer => {
+                                writeOp!(OP_INEGATE, line) ;
+                            },
+                            DataType::Float => {
+                                writeOp!(OP_FNEGATE, line) ;
+                            },
+                            _ => {}
+                        }
+                    },
+                    Operator::Plus => {},
+                    _ => {}
+                }
+                dataType
+            },
+
+            Node::Statement {
+                tokenType
+            } => {
+                match tokenType {
+                    TOKEN_START => {
+                        println!("START");
+                    }
+                    _ => {}
+                }
+                DataType::None
+            },
+
+            Node::VarDecl {
+                name,
+                assigned,
+                varExpr
+            } => {
+                let datatype = self.walkTree(*varExpr, level + 2);
+                let loc = self.addVariable(name, datatype) ;
+                writeOp!(OP_SETVAR, 0);
+                writeOperand!(loc as u16);
+
+                datatype
+            },
+
+            Node::setVar {
+                name,
+                datatype,
+                child
+            } => {
+                let symbol = self.getVariable(name) ;
+                let valueDataType = self.walkTree(*child, level + 2);
+
+                let mut varType = datatype ;
+                if varType == DataType::None {
+                    varType = valueDataType;
+                }
+                // Todo: Check that the variable type matches the value type
+
+                writeOp!(OP_SETVAR, 0);
+                writeOperand!(symbol.location as u16);
+
+                varType
+            },
+
+            Node::namedVar {
+                name
+            } => {
+
+                let symbol = self.getVariable(name) ;
+
+                writeOp!(OP_LOADVAR, 0);
+                writeOperand!(symbol.location as u16);
+
+                symbol.datatype
+            },
+
+            Node::Block => {
+                self.chunk.symbTable.pushLevel();
+                DataType::None
+            },
+
+            Node::EndBlock => {
+                self.chunk.symbTable.popLevel();
+                DataType::None
+            },
+
+            Node::jumpIfFalse {
+                popType
+            } => {
+                match popType {
+                    JumpPop::POP => writeOp!(OP_JUMP_IF_FALSE,0),
+                    JumpPop::NOPOP => writeOp!(OP_JUMP_IF_FALSE_NOPOP, 0),
+                }
+                // Bogus operand which we know will be overwritten
+                // at the next backpatch
+                writeOperand!(9999_u16) ;
+
+                let loc = currentLocation(self.chunk) -2;
+                self.jumpifFalse.push(loc);
+
+                DataType::None
+            },
+
+            Node::backpatch {
+                jumpType
+            } => {
+
+                let location = match jumpType {
+                    JumpType::jumpIfFalse => self.jumpifFalse.pop().unwrap() ,
+                    JumpType::Jump => self.jump.pop().unwrap()
+                } ;
+
+                backPatch(self.chunk, location);
+
+                DataType::None
+            },
+
+            Node::jump  => {
+
+                writeOp!(OP_JUMP, 0);
+                writeOperand!(9999_u16) ;
+                let loc = currentLocation(self.chunk) -2;
+                self.jump.push(loc) ;
+                DataType::None
+            },
+
+            Node::pop => {
+                writeOp!(OP_POP,0);
+                DataType::None
+            },
+
+            Node::Print {
+                printExpr
+            } => {
+                let datatype = self.walkTree(*printExpr, level + 2);
+                match datatype {
+                    DataType::String => writeOp!(OP_SPRINT,0),
+                    _ => writeOp!(OP_PRINT,0)
+                }
+                datatype
+            },
+
+            Node::Return {
+                returnVal
+            } => {
+                let datatype = self.walkTree(*returnVal, level + 2);
+                writeOp!(OP_RETURN,0);
+                datatype
+            },
+
+            Node::Loop => {
+                let loc = currentLocation(self.chunk) as i32 ;
+                let startLoc = self.chunk.whileLocation.pop().unwrap() as i32;
+                let diff = loc-startLoc+3;
+                writeOp!(OP_LOOP, 0);
+                writeOperand!(diff as u16) ;
+                DataType::None
+            },
+
+            Node::Break => {
+
+                DataType::None
+            },
+
+            Node::Continue => {
+                DataType::None
+            },
+
+            Node::While => {
+                    let loc = currentLocation(self.chunk) ;
+                    self.chunk.whileLocation.push( loc);
+                    DataType::None
+            }
+
+        }
+    }
+
 
 }

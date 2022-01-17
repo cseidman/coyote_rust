@@ -1,13 +1,15 @@
-let x = 10
-if x >= 10 {
-    let x = x
-    x = x +5
-    print x
-}
-let y = 20
-{
-    let x = 7
-    print x
+let x = 7
+if x == 10 {
+    print "OK"
+} else {
+    print "Nope"
 }
 
-print x + y
+if x == 7 {
+    print "Whew!!"
+}
+
+if x != 11 {
+    print "AGHHH!!"
+}
+

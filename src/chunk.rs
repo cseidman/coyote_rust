@@ -81,6 +81,12 @@ pub enum OpCode {
     OP_FLTEQ,
     OP_SLTEQ,
     OP_JUMP_IF_FALSE_NOPOP,
+    OP_LOOP,
+    OP_INEQ,
+    OP_FNEQ,
+    OP_SNEQ,
+    OP_BREAK,
+    OP_CONTINUE,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -134,6 +140,12 @@ impl From<u8> for OpCode {
             45  => OP_FLTEQ,
             46  => OP_SLTEQ,
             47  => OP_JUMP_IF_FALSE_NOPOP,
+            48  => OP_LOOP,
+            49  => OP_INEQ,
+            50  => OP_FNEQ,
+            51  => OP_SNEQ,
+            52  => OP_BREAK,
+            53  => OP_CONTINUE,
             _   => OP_UNKNOWN,
         }
     }
@@ -145,6 +157,8 @@ pub struct Chunk {
     pub heapConstants: HeapValueArray,
     pub lines: Vec<usize>,
     pub symbTable: SymbolTable,
+
+    pub whileLocation: Vec<usize>
 }
 
 impl Chunk {
@@ -154,7 +168,8 @@ impl Chunk {
             constants: ValueArray::new(),
             heapConstants: HeapValueArray::new() ,
             symbTable: SymbolTable::new(),
-            lines: Vec::new()
+            lines: Vec::new(),
+            whileLocation: Vec::new()
         }
     }
 }

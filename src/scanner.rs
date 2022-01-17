@@ -31,7 +31,7 @@ pub enum TokenType {
     TOKEN_AND, TOKEN_CLASS, TOKEN_ELSE, TOKEN_FALSE,
     TOKEN_FOR, TOKEN_FUN, TOKEN_IF, TOKEN_OR,
     TOKEN_PRINT, TOKEN_RETURN, TOKEN_SUPER, TOKEN_THIS,
-    TOKEN_TRUE, TOKEN_VAR, TOKEN_WHILE,
+    TOKEN_TRUE, TOKEN_VAR, TOKEN_WHILE, TOKEN_BREAK, TOKEN_CONTINUE,
 
     TOKEN_ERROR, TOKEN_EOF, TOKEN_CR, TOKEN_START
 }
@@ -382,6 +382,8 @@ impl Scanner {
             "true"      => TOKEN_TRUE,
             "let"       => TOKEN_VAR,
             "while"     => TOKEN_WHILE,
+            "break"     => TOKEN_BREAK,
+            "continue"  => TOKEN_CONTINUE,
              _          => TOKEN_IDENTIFIER ,
         }
 

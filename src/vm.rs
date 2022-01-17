@@ -224,6 +224,10 @@ impl<'a> VM<'a> {
                 OP_FEQ => {CPFPOP!(==)},
                 OP_SEQ => {CPSPOP!(==)},
 
+                OP_INEQ => {CPIPOP!(!=)},
+                OP_FNEQ => {CPFPOP!(!=)},
+                OP_SNEQ => {CPSPOP!(!=)},
+
                 OP_IGT => {CPIPOP!(>)},
                 OP_FGT => {CPFPOP!(>)},
                 OP_SGT => {CPSPOP!(>)},
@@ -291,6 +295,15 @@ impl<'a> VM<'a> {
                 },
                 OP_JUMP =>{
                     self.ip += READ_OPERAND!() as usize;
+                },
+                OP_LOOP => {
+                    self.ip -= READ_OPERAND!() as usize
+                },
+                OP_BREAK => {
+
+                },
+                OP_CONTINUE => {
+
                 },
                 OP_NOP => {},
                 OP_POP => {
