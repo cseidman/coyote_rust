@@ -1,7 +1,7 @@
 use std::rc::{Rc};
 
 #[derive(PartialEq)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialOrd)]
 pub enum TokenType {
     // Single-character tokens.
     TOKEN_LEFT_PAREN, TOKEN_RIGHT_PAREN,

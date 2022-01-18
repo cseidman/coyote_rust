@@ -1,12 +1,18 @@
-let x = 3
+let x = 5
 let y = 0
 while x > y {
     print y
     y = y+1
 
-    if y == 3 {
-        print "The end is near!"
+    if y == 4 {
+        print "The end is nearer!"
+        break
     }
+    if y == 5{
+            print "The end is near!"
+            break
+        }
+
 
 }
 print "Done!"

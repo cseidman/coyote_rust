@@ -31,7 +31,7 @@ const OP_FMULTIPLY:u8 = 24;
 const OP_FDIVIDE:u8 = 25;
 const OP_SCONSTANT:u8 = 26;
 */
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialOrd, PartialEq)]
 pub enum OpCode {
     OP_RETURN,
     OP_CONSTANT,

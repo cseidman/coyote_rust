@@ -528,6 +528,7 @@ impl<'a> Compiler<'a> {
 
         if self.t_match(TOKEN_ELSE) {
             self.declaration();
+
         }
         self.nodePush(Node::backpatch {
             jumpType: JumpType::Jump
@@ -550,15 +551,11 @@ impl<'a> Compiler<'a> {
 
         loop {
             let curNode = self.nodes.last().unwrap().clone();
-            match curNode {
-                Node::While => {
-                    break;
-                },
-                _ => nodes.push(self.nodes.pop().unwrap())
+            if curNode == Node::While {
+                break;
             }
+            nodes.insert(0,self.nodes.pop().unwrap()) ;
         }
-
-        nodes.reverse();
 
         let whileNode = Node::EndWhile {
             condition: Box::new(conditional),
@@ -1017,7 +1014,12 @@ impl<'a> Compiler<'a> {
                 self.walkTree(*jump, level + 2) ;
                 let jumpFromLocation = self.jumpifFalse.pop().unwrap() ;
 
+                let mut breaks: Vec<usize> = Vec::new();
+
                 for n in statements {
+                    if n == Node::Break {
+                        breaks.push(currentLocation(self.chunk)+1);
+                    }
                     self.walkTree(n, level +2);
                 }
 
@@ -1027,6 +1029,10 @@ impl<'a> Compiler<'a> {
                 writeOperand!(backJumpBy as u16) ;
 
                 backPatch(self.chunk, jumpFromLocation) ;
+
+                for b in breaks {
+                    backPatch(self.chunk, b) ;
+                }
 
                 self.loopDepth-=1 ;
                 DataType::None

@@ -10,13 +10,13 @@ use std::str::{FromStr};
 use crate::errors::{InterpretResult, ReportError};
 use InterpretResult::* ;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialOrd, PartialEq)]
 pub enum JumpType {
     jumpIfFalse,
     Jump
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum JumpPop {
     POP,
     NOPOP
@@ -33,7 +33,7 @@ pub enum OpType {
 
 // This struct is used to determine to what extent
 // types are compatible for binary operations
-#[derive(PartialEq, Copy, Clone, Debug)]
+#[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]
 pub enum DataType {
     Integer,
     Float,
@@ -54,7 +54,7 @@ impl DataType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum Operator {
     Plus,
     Minus,
@@ -84,7 +84,7 @@ impl Operator {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialOrd, PartialEq)]
 pub enum Node {
     Value {
         line: usize,

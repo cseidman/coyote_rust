@@ -48,7 +48,7 @@ pub fn writeValueArray(array: &mut ValueArray, value: Value) {
     array.values.push(value) ;
 }
 
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug,Clone,Copy, PartialOrd)]
 pub enum Value {
     integer(i64),
     float(f64),
