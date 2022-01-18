@@ -16,7 +16,7 @@ use std::env::var;
 use std::collections::HashMap;
 
 use crate::ast::JumpPop::{NOPOP, POP};
-use crate::ast::Node::Root;
+use crate::ast::Node::{Root, backpatch};
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -107,6 +107,16 @@ impl Parser {
     }
 }
 
+pub struct IlCode {
+    op: OpCode,
+    operand: Option<u16>,
+    datatype: DataType,
+    comment: String,
+    start: usize,
+    length: u8,
+    line: usize
+}
+
 macro_rules! currentChunk {
     ($self:ident) => {
         &mut $self.chunk
@@ -123,7 +133,12 @@ pub struct Compiler<'a>  {
     pub scopeDepth: usize,
 
     pub jumpifFalse: Vec<usize>,
-    pub jump: Vec<usize>
+    pub jump: Vec<usize>,
+    pub breakjump: Vec<usize>,
+    pub loopDepth: usize,
+
+    pub ilcode: Vec<IlCode>,
+    pub currentIl: usize
 }
 
 impl<'a> Compiler<'a> {
@@ -138,7 +153,12 @@ impl<'a> Compiler<'a> {
             localCount: 0,
             scopeDepth: 0,
             jumpifFalse: Vec::new(),
-            jump: Vec::new()
+            jump: Vec::new(),
+            breakjump: Vec::new(),
+            loopDepth: 0,
+
+            ilcode: Vec::new(),
+            currentIl: 0
         }
     }
 
@@ -516,23 +536,42 @@ impl<'a> Compiler<'a> {
 
     fn whileStatement(&mut self) {
 
-        self.nodePush(Node::While) ;
         self.expression() ;
+        let conditional = self.nodes.pop().unwrap() ;
+
         self.nodePush(Node::jumpIfFalse {
             popType: JumpPop::POP
         }) ;
+        let jumpNode = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::While);
         self.declaration();
-        self.nodePush(Node::Loop) ;
-        self.nodePush(Node::backpatch {
-            jumpType: JumpType::jumpIfFalse
-        });
+        let mut nodes: Vec<Node> = Vec::new() ;
 
+        loop {
+            let curNode = self.nodes.last().unwrap().clone();
+            match curNode {
+                Node::While => {
+                    break;
+                },
+                _ => nodes.push(self.nodes.pop().unwrap())
+            }
+        }
 
+        nodes.reverse();
+
+        let whileNode = Node::EndWhile {
+            condition: Box::new(conditional),
+            jump: Box::new(jumpNode),
+            statements: nodes
+        } ;
+
+        self.nodePush(whileNode) ;
 
     }
 
     fn breakStatement(&mut self) {
-        self.nodePush(Node::jump);
+        self.nodePush(Node::Break);
     }
 
     fn continueStatement(&mut self) {
@@ -947,6 +986,14 @@ impl<'a> Compiler<'a> {
 
             Node::Break => {
 
+                if self.loopDepth == 0 {
+                    self.errorAtAst("'break' must be inside a loop", 0) ;
+                }
+
+                writeOp!(OP_JUMP, 0);
+                writeOperand!(9999_u16) ;
+                let loc = currentLocation(self.chunk) -2;
+                self.jump.push(loc) ;
                 DataType::None
             },
 
@@ -954,10 +1001,40 @@ impl<'a> Compiler<'a> {
                 DataType::None
             },
 
+            Node::EndWhile {
+                condition,
+                jump,
+                statements
+            } => {
+
+                let beginLocation = currentLocation(self.chunk) ;
+                let conditionDataType = self.walkTree(*condition, level + 2);
+
+                if conditionDataType != DataType::Bool {
+                    self.errorAtAst("'while' condition must evaluate to true or false", 0);
+                }
+
+                self.walkTree(*jump, level + 2) ;
+                let jumpFromLocation = self.jumpifFalse.pop().unwrap() ;
+
+                for n in statements {
+                    self.walkTree(n, level +2);
+                }
+
+                let loc = currentLocation(self.chunk) ;
+                let backJumpBy = loc - beginLocation+3;
+                writeOp!(OP_LOOP, 0) ;
+                writeOperand!(backJumpBy as u16) ;
+
+                backPatch(self.chunk, jumpFromLocation) ;
+
+                self.loopDepth-=1 ;
+                DataType::None
+            },
+
             Node::While => {
-                    let loc = currentLocation(self.chunk) ;
-                    self.chunk.whileLocation.push( loc);
-                    DataType::None
+                self.loopDepth+=1 ;
+                DataType::None
             }
 
         }

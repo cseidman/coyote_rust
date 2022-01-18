@@ -140,6 +140,11 @@ pub enum Node {
     },
     pop,
     Loop,
+    EndWhile {
+        condition: Box<Node>,
+        jump: Box<Node>,
+        statements: Vec<Node>
+    },
     While,
     Break,
     Continue
