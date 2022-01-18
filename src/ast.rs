@@ -103,9 +103,7 @@ pub enum Node {
         lhs: Box<Node>,
         rhs: Box<Node>,
     },
-    Statement {
-        tokenType: TokenType
-    },
+
     VarDecl {
         name: String ,
         assigned: bool,
@@ -131,25 +129,27 @@ pub enum Node {
 
     Block,
     EndBlock,
-    jumpIfFalse {
-        popType: JumpPop
-    } ,
+
+    And {
+        expr: Box<Node>,
+    },
+    Or {
+        expr: Box<Node>,
+    },
+
     jump ,
     backpatch {
         jumpType: JumpType
     },
-    pop,
     Loop,
     EndWhile {
         condition: Box<Node>,
-        jump: Box<Node>,
         statements: Vec<Node>
     },
     If,
     Else,
     Endif {
         condition: Box<Node>,
-        jump: Box<Node>,
         thenStatements: Vec<Node>,
         elseStatements: Vec<Node>,
         hasElse: bool

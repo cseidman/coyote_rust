@@ -1,10 +1,6 @@
 let x = 7
-if x == 7 {
+if x == 7  {
     print "OK"
 } else {
     print "Oops..!"
-}
-
-if x == 7 {
-    print "OK again"
 }

@@ -3,13 +3,6 @@ let y = 0
 while x > y {
     print y
     y = y+1
-
-    if y == 3 {
-        print "The end is near"
-    } else {
-        print "Not yet"
-    }
-
 }
 print "Done!"
 

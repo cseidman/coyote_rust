@@ -478,50 +478,25 @@ impl<'a> Compiler<'a> {
     }
 
     fn and_(&mut self) {
-
-        self.nodePush(Node::jumpIfFalse {
-            popType: JumpPop::NOPOP
-        }) ;
-
-        self.nodePush(Node::pop);
-
-        self.parsePrecedence(PREC_AND);
-
-        self.nodePush(Node::backpatch {
-            jumpType: JumpType::jumpIfFalse
-        });
-
+        self.expression() ;
+        let expr = self.nodes.pop().unwrap() ;
+        self.nodePush(Node::And {
+            expr: Box::new(expr)
+        })
     }
 
     fn or_(&mut self) {
-
-        self.nodePush(Node::jumpIfFalse {
-            popType: JumpPop::NOPOP
-        }) ;
-        self.nodePush(Node::jump);
-
-        self.nodePush(Node::backpatch {
-            jumpType: JumpType::jumpIfFalse
-        });
-        self.nodePush(Node::pop);
-
-        self.parsePrecedence(PREC_OR);
-        self.nodePush(Node::backpatch {
-            jumpType: JumpType::Jump
-        });
-
+        self.expression() ;
+        let expr = self.nodes.pop().unwrap() ;
+        self.nodePush(Node::Or {
+            expr: Box::new(expr)
+        })
     }
 
     fn ifStatement(&mut self) {
         // The IF condition
         self.expression() ;
         let conditional = self.nodes.pop().unwrap() ;
-
-        //If the above is false, this is where we jump from
-        self.nodePush(Node::jumpIfFalse {
-            popType: JumpPop::POP
-        }) ;
-        let jumpNode = self.nodes.pop().unwrap() ;
 
         self.nodePush(Node::If);
         // This is what we find inside the IF block (this includes
@@ -564,7 +539,6 @@ impl<'a> Compiler<'a> {
 
         let ifNode = Node::Endif {
             condition: Box::new(conditional),
-            jump: Box::new(jumpNode),
             thenStatements: thenNodes,
             elseStatements: elseNodes,
             hasElse: thereIsAnElse
@@ -577,11 +551,6 @@ impl<'a> Compiler<'a> {
 
         self.expression() ;
         let conditional = self.nodes.pop().unwrap() ;
-
-        self.nodePush(Node::jumpIfFalse {
-            popType: JumpPop::POP
-        }) ;
-        let jumpNode = self.nodes.pop().unwrap() ;
 
         self.nodePush(Node::While);
         self.declaration();
@@ -597,7 +566,6 @@ impl<'a> Compiler<'a> {
 
         let whileNode = Node::EndWhile {
             condition: Box::new(conditional),
-            jump: Box::new(jumpNode),
             statements: nodes
         } ;
 
@@ -759,6 +727,7 @@ impl<'a> Compiler<'a> {
     /** AST Operations **/
 
     pub fn walkTree(&mut self, node: Node, level: usize) -> DataType {
+
         macro_rules! writeOp {
             ($byte:expr, $line:expr) => {
                 writeChunk(self.chunk, $byte as u8, $line)
@@ -885,18 +854,6 @@ impl<'a> Compiler<'a> {
                 dataType
             },
 
-            Node::Statement {
-                tokenType
-            } => {
-                match tokenType {
-                    TOKEN_START => {
-                        println!("START");
-                    }
-                    _ => {}
-                }
-                DataType::None
-            },
-
             Node::VarDecl {
                 name,
                 assigned,
@@ -952,21 +909,18 @@ impl<'a> Compiler<'a> {
                 DataType::None
             },
 
-            Node::jumpIfFalse {
-                popType
+            Node::And {
+                expr
             } => {
-                match popType {
-                    JumpPop::POP => writeOp!(OP_JUMP_IF_FALSE,0),
-                    JumpPop::NOPOP => writeOp!(OP_JUMP_IF_FALSE_NOPOP, 0),
-                }
-                // Bogus operand which we know will be overwritten
-                // at the next backpatch
-                writeOperand!(9999_u16) ;
+                self.walkTree(*expr, level + 2 );
+                DataType::Bool
+            },
 
-                let loc = currentLocation(self.chunk) -2;
-                self.jumpifFalse.push(loc);
-
-                DataType::None
+            Node::Or {
+                expr
+            } => {
+                self.walkTree(*expr, level + 2 );
+                DataType::Bool
             },
 
             Node::backpatch {
@@ -989,11 +943,6 @@ impl<'a> Compiler<'a> {
                 writeOperand!(9999_u16) ;
                 let loc = currentLocation(self.chunk) -2;
                 self.jump.push(loc) ;
-                DataType::None
-            },
-
-            Node::pop => {
-                writeOp!(OP_POP,0);
                 DataType::None
             },
 
@@ -1046,21 +995,22 @@ impl<'a> Compiler<'a> {
             },
             Node::Endif {
                 condition,
-                jump,
                 thenStatements,
                 elseStatements,
                 hasElse
             } => {
                 // Execute the condition
+
                 let conditionDataType = self.walkTree(*condition, level + 2);
 
                 if conditionDataType != DataType::Bool {
-                    self.errorAtAst("'if' condition must evaluate to true or false", 0);
+                    //self.errorAtAst("'if' condition must evaluate to true or false", 0);
                 }
 
                 // We jump from here if the IF resolves to FALSE
-                self.walkTree(*jump, level + 2) ;
-                let jumpFromLocation = self.jumpifFalse.pop().unwrap() ;
+                writeOp!(OP_JUMP_IF_FALSE, 0) ;
+                let jumpFromLocation = currentLocation(self.chunk);
+                writeOperand!(9999_u16) ;
 
                 for n in thenStatements {
                     self.walkTree(n, level +2);
@@ -1071,7 +1021,6 @@ impl<'a> Compiler<'a> {
                 // After the THEN, we skip straight to the
                 // end if there is an ELSE. If not, just keep going
 
-
                 if hasElse {
 
                     writeOp!(OP_JUMP, 0) ;
@@ -1080,7 +1029,6 @@ impl<'a> Compiler<'a> {
                     backPatch(self.chunk, jumpFromLocation) ;
 
                     for n in elseStatements {
-                        println!("{:?}", n) ;
                         self.walkTree(n, level +2);
                     }
                 } else {
@@ -1096,7 +1044,6 @@ impl<'a> Compiler<'a> {
 
             Node::EndWhile {
                 condition,
-                jump,
                 statements
             } => {
 
@@ -1107,8 +1054,9 @@ impl<'a> Compiler<'a> {
                     self.errorAtAst("'while' condition must evaluate to true or false", 0);
                 }
 
-                self.walkTree(*jump, level + 2) ;
-                let jumpFromLocation = self.jumpifFalse.pop().unwrap() ;
+                writeOp!(OP_JUMP_IF_FALSE, 0) ;
+                let jumpFromLocation = currentLocation(self.chunk);
+                writeOperand!(9999_u16) ;
 
                 let mut breaks: Vec<usize> = Vec::new();
 
