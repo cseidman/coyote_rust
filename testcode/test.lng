@@ -1,15 +1,10 @@
 let x = 7
-if x == 10 {
+if x == 7 {
     print "OK"
 } else {
-    print "Nope"
+    print "Oops..!"
 }
 
 if x == 7 {
-    print "Whew!!"
+    print "OK again"
 }
-
-if x != 11 {
-    print "AGHHH!!"
-}
-

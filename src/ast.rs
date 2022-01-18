@@ -145,6 +145,15 @@ pub enum Node {
         jump: Box<Node>,
         statements: Vec<Node>
     },
+    If,
+    Else,
+    Endif {
+        condition: Box<Node>,
+        jump: Box<Node>,
+        thenStatements: Vec<Node>,
+        elseStatements: Vec<Node>,
+        hasElse: bool
+    },
     While,
     Break,
     Continue

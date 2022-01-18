@@ -513,26 +513,64 @@ impl<'a> Compiler<'a> {
     }
 
     fn ifStatement(&mut self) {
+        // The IF condition
+        self.expression() ;
+        let conditional = self.nodes.pop().unwrap() ;
 
-        self.expression();
-
+        //If the above is false, this is where we jump from
         self.nodePush(Node::jumpIfFalse {
             popType: JumpPop::POP
         }) ;
+        let jumpNode = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::If);
+        // This is what we find inside the IF block (this includes
+        // the 'else' statement)
         self.declaration();
-        self.nodePush(Node::jump);
 
-        self.nodePush(Node::backpatch {
-            jumpType: JumpType::jumpIfFalse
-        });
+        // Load the statements here
+        let mut thenNodes: Vec<Node> = Vec::new() ;
+        let mut elseNodes: Vec<Node> = Vec::new() ;
 
-        if self.t_match(TOKEN_ELSE) {
-            self.declaration();
+        let mut thereIsAnElse = false ;
 
+        loop {
+            let curNode = self.nodes.last().unwrap().clone();
+            // Since we're popping the values off the node stack, we know
+            // that we need to stop at the IF statement
+            thenNodes.insert(0,self.nodes.pop().unwrap()) ;
+            if curNode == Node::If {
+                break;
+            }
         }
-        self.nodePush(Node::backpatch {
-            jumpType: JumpType::Jump
-        });
+        // Capture the "ELSE" if there is one
+        self.declaration() ;
+
+        // If we hit an 'else' node, then that means that
+        if self.nodes.last().unwrap().clone() == Node::Else {
+            thereIsAnElse = true ;
+            self.declaration() ;
+
+            loop {
+                let curNode = self.nodes.last().unwrap().clone();
+                // Since we're popping the values off the node stack, we know
+                // that we need to stop at the IF statement
+                elseNodes.insert(0,self.nodes.pop().unwrap()) ;
+                if curNode == Node::Else {
+                    break;
+                }
+            }
+        }
+
+        let ifNode = Node::Endif {
+            condition: Box::new(conditional),
+            jump: Box::new(jumpNode),
+            thenStatements: thenNodes,
+            elseStatements: elseNodes,
+            hasElse: thereIsAnElse
+        } ;
+
+        self.nodePush(ifNode) ;
     }
 
     fn whileStatement(&mut self) {
@@ -567,6 +605,10 @@ impl<'a> Compiler<'a> {
 
     }
 
+    fn elseStatement(&mut self) {
+        self.nodePush(Node::Else);
+    }
+
     fn breakStatement(&mut self) {
         self.nodePush(Node::Break);
     }
@@ -595,9 +637,11 @@ impl<'a> Compiler<'a> {
         } else if self.t_match(TOKEN_WHILE) {
             self.whileStatement();
         } else if self.t_match(TOKEN_BREAK) {
-            self.breakStatement() ;
+            self.breakStatement();
         } else if self.t_match(TOKEN_CONTINUE) {
-            self.continueStatement() ;
+            self.continueStatement();
+        } else if self.t_match(TOKEN_ELSE) {
+            self.elseStatement() ;
         } else {
             self.expression();
         }
@@ -997,6 +1041,58 @@ impl<'a> Compiler<'a> {
             Node::Continue => {
                 DataType::None
             },
+            Node::If => {
+                DataType::None
+            },
+            Node::Endif {
+                condition,
+                jump,
+                thenStatements,
+                elseStatements,
+                hasElse
+            } => {
+                // Execute the condition
+                let conditionDataType = self.walkTree(*condition, level + 2);
+
+                if conditionDataType != DataType::Bool {
+                    self.errorAtAst("'if' condition must evaluate to true or false", 0);
+                }
+
+                // We jump from here if the IF resolves to FALSE
+                self.walkTree(*jump, level + 2) ;
+                let jumpFromLocation = self.jumpifFalse.pop().unwrap() ;
+
+                for n in thenStatements {
+                    self.walkTree(n, level +2);
+                }
+
+                let mut afterElseLoc = 0 ;
+
+                // After the THEN, we skip straight to the
+                // end if there is an ELSE. If not, just keep going
+
+
+                if hasElse {
+
+                    writeOp!(OP_JUMP, 0) ;
+                    afterElseLoc = currentLocation(self.chunk);
+                    writeOperand!(9999_u16) ;
+                    backPatch(self.chunk, jumpFromLocation) ;
+
+                    for n in elseStatements {
+                        println!("{:?}", n) ;
+                        self.walkTree(n, level +2);
+                    }
+                } else {
+                    backPatch(self.chunk, jumpFromLocation) ;
+                }
+
+                if hasElse {
+                    backPatch(self.chunk, afterElseLoc);
+                }
+
+                DataType::None
+            }
 
             Node::EndWhile {
                 condition,
@@ -1043,6 +1139,7 @@ impl<'a> Compiler<'a> {
                 DataType::None
             }
 
+            Node::Else => {DataType::None}
         }
     }
 
