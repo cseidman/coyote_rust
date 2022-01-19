@@ -16,7 +16,7 @@ use std::env::var;
 use std::collections::HashMap;
 
 use crate::ast::JumpPop::{NOPOP, POP};
-use crate::ast::Node::{Root, backpatch};
+use crate::ast::Node::*;
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -425,7 +425,7 @@ impl<'a> Compiler<'a> {
             | TOKEN_LESS_EQUAL  => Rule::new(NONE, BINARY, PREC_COMPARISON),
             TOKEN_IDENTIFIER  => Rule::new(VARIABLE, NONE, PREC_NONE),
             TOKEN_AND           => Rule::new(NONE, AND, PREC_AND),
-            TOKEN_OR           => Rule::new(NONE, OR, PREC_AND),
+            TOKEN_OR           => Rule::new(NONE, OR, PREC_OR),
             _                   => Rule::new(NONE, NONE, PREC_NONE )
         }
     }
@@ -478,7 +478,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn and_(&mut self) {
-        self.expression() ;
+        self.parsePrecedence(PREC_AND);
         let expr = self.nodes.pop().unwrap() ;
         self.nodePush(Node::And {
             expr: Box::new(expr)
@@ -486,7 +486,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn or_(&mut self) {
-        self.expression() ;
+        self.parsePrecedence(PREC_OR);
         let expr = self.nodes.pop().unwrap() ;
         self.nodePush(Node::Or {
             expr: Box::new(expr)
@@ -547,12 +547,45 @@ impl<'a> Compiler<'a> {
         self.nodePush(ifNode) ;
     }
 
-    fn whileStatement(&mut self) {
+    fn logicalExpression(&mut self) -> Node {
+
+        let mut expr: Vec<Node> = Vec::new() ;
 
         self.expression() ;
-        let conditional = self.nodes.pop().unwrap() ;
+        expr.insert(0,self.nodes.pop().unwrap()) ;
+
+        if self.t_match(TOKEN_AND) {
+            self.logicalExpression() ;
+
+            let andNode = Node::And {
+                expr: Box::new(self.nodes.pop().unwrap())
+            };
+
+            expr.insert(0,andNode) ;
+        }
+        if self.t_match(TOKEN_OR) {
+
+            self.logicalExpression() ;
+
+            let orNode = Node::Or {
+                expr: Box::new(self.nodes.pop().unwrap())
+            };
+
+            expr.insert(0,orNode) ;
+        }
+
+        Node::Logical {
+            expr
+        }
+
+    }
+
+    fn whileStatement(&mut self) {
 
         self.nodePush(Node::While);
+        self.expression() ;
+        let conditional = self.nodes.pop().unwrap();
+
         self.declaration();
         let mut nodes: Vec<Node> = Vec::new() ;
 
@@ -912,38 +945,36 @@ impl<'a> Compiler<'a> {
             Node::And {
                 expr
             } => {
+
+                writeOp!(OP_JUMP_IF_FALSE_NOPOP,0) ;
+                let loc = currentLocation(self.chunk);
+                writeOperand!(9999_u16) ;
+                writeOp!(OP_POP,0) ;
                 self.walkTree(*expr, level + 2 );
+
+                backPatch(self.chunk, loc ) ;
+
                 DataType::Bool
             },
 
             Node::Or {
                 expr
             } => {
-                self.walkTree(*expr, level + 2 );
-                DataType::Bool
-            },
-
-            Node::backpatch {
-                jumpType
-            } => {
-
-                let location = match jumpType {
-                    JumpType::jumpIfFalse => self.jumpifFalse.pop().unwrap() ,
-                    JumpType::Jump => self.jump.pop().unwrap()
-                } ;
-
-                backPatch(self.chunk, location);
-
-                DataType::None
-            },
-
-            Node::jump  => {
-
-                writeOp!(OP_JUMP, 0);
+                writeOp!(OP_JUMP_IF_FALSE_NOPOP,0) ;
+                let loc = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
-                let loc = currentLocation(self.chunk) -2;
-                self.jump.push(loc) ;
-                DataType::None
+
+                writeOp!(OP_JUMP,0) ;
+                let jmp = currentLocation(self.chunk);
+                writeOperand!(9999_u16) ;
+
+                backPatch(self.chunk, loc) ;
+                writeOp!(OP_POP,0) ;
+
+                self.walkTree(*expr, level + 2 );
+
+                backPatch(self.chunk, jmp ) ;
+                DataType::Bool
             },
 
             Node::Print {
@@ -965,15 +996,6 @@ impl<'a> Compiler<'a> {
                 datatype
             },
 
-            Node::Loop => {
-                let loc = currentLocation(self.chunk) as i32 ;
-                let startLoc = self.chunk.whileLocation.pop().unwrap() as i32;
-                let diff = loc-startLoc+3;
-                writeOp!(OP_LOOP, 0);
-                writeOperand!(diff as u16) ;
-                DataType::None
-            },
-
             Node::Break => {
 
                 if self.loopDepth == 0 {
@@ -981,10 +1003,12 @@ impl<'a> Compiler<'a> {
                 }
 
                 writeOp!(OP_JUMP, 0);
+                let loc = currentLocation(self.chunk) ;
                 writeOperand!(9999_u16) ;
-                let loc = currentLocation(self.chunk) -2;
+
                 self.jump.push(loc) ;
                 DataType::None
+
             },
 
             Node::Continue => {
@@ -993,6 +1017,7 @@ impl<'a> Compiler<'a> {
             Node::If => {
                 DataType::None
             },
+
             Node::Endif {
                 condition,
                 thenStatements,
@@ -1047,19 +1072,15 @@ impl<'a> Compiler<'a> {
                 statements
             } => {
 
-                let beginLocation = currentLocation(self.chunk) ;
-                let conditionDataType = self.walkTree(*condition, level + 2);
+                let beginLocation = currentLocation(self.chunk);
+                self.walkTree(*condition, level + 2 );
 
-                if conditionDataType != DataType::Bool {
-                    self.errorAtAst("'while' condition must evaluate to true or false", 0);
-                }
-
+                // We should have a logical value on the stack here
                 writeOp!(OP_JUMP_IF_FALSE, 0) ;
                 let jumpFromLocation = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
 
                 let mut breaks: Vec<usize> = Vec::new();
-
                 for n in statements {
                     if n == Node::Break {
                         breaks.push(currentLocation(self.chunk)+1);
@@ -1068,7 +1089,9 @@ impl<'a> Compiler<'a> {
                 }
 
                 let loc = currentLocation(self.chunk) ;
+                println!("loc: {} begin {}", loc, beginLocation) ;
                 let backJumpBy = loc - beginLocation+3;
+
                 writeOp!(OP_LOOP, 0) ;
                 writeOperand!(backJumpBy as u16) ;
 
@@ -1085,9 +1108,17 @@ impl<'a> Compiler<'a> {
             Node::While => {
                 self.loopDepth+=1 ;
                 DataType::None
+            },
+
+            Node::Else => {
+                DataType::None
+            },
+            Node::Logical {
+                expr
+            } => {
+                DataType::Bool
             }
 
-            Node::Else => {DataType::None}
         }
     }
 

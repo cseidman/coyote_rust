@@ -85,8 +85,6 @@ pub enum OpCode {
     OP_INEQ,
     OP_FNEQ,
     OP_SNEQ,
-    OP_BREAK,
-    OP_CONTINUE,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -144,8 +142,7 @@ impl From<u8> for OpCode {
             49  => OP_INEQ,
             50  => OP_FNEQ,
             51  => OP_SNEQ,
-            52  => OP_BREAK,
-            53  => OP_CONTINUE,
+
             _   => OP_UNKNOWN,
         }
     }

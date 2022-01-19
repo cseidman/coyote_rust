@@ -81,7 +81,6 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_POP
         | OpCode::OP_FALSE
         | OpCode::OP_SPRINT
-        | OpCode::OP_BREAK
         | OpCode::OP_PRINT => simpleInstruction(display!(instruction), offset),
         OpCode::OP_PUSH
         | OpCode::OP_LOOP

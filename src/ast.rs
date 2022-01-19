@@ -103,6 +103,9 @@ pub enum Node {
         lhs: Box<Node>,
         rhs: Box<Node>,
     },
+    Logical {
+        expr: Vec<Node>
+    },
 
     VarDecl {
         name: String ,
@@ -136,12 +139,7 @@ pub enum Node {
     Or {
         expr: Box<Node>,
     },
-
-    jump ,
-    backpatch {
-        jumpType: JumpType
-    },
-    Loop,
+    //Loop,
     EndWhile {
         condition: Box<Node>,
         statements: Vec<Node>
@@ -156,6 +154,7 @@ pub enum Node {
     },
     While,
     Break,
-    Continue
+    Continue,
+
 }
 

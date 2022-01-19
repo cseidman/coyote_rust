@@ -299,12 +299,7 @@ impl<'a> VM<'a> {
                 OP_LOOP => {
                     self.ip -= READ_OPERAND!() as usize
                 },
-                OP_BREAK => {
 
-                },
-                OP_CONTINUE => {
-
-                },
                 OP_NOP => {},
                 OP_POP => {
                     self.pop();
