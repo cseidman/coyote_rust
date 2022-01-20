@@ -147,7 +147,7 @@ pub enum Node {
     If,
     Else,
     Endif {
-        condition: Box<Node>,
+        condition: Vec<Node>,
         thenStatements: Vec<Node>,
         elseStatements: Vec<Node>,
         hasElse: bool

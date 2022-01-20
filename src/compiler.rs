@@ -493,13 +493,20 @@ impl<'a> Compiler<'a> {
     }
 
     fn ifStatement(&mut self) {
-        // The IF condition
-        self.expression() ;
-        let conditional = self.nodes.pop().unwrap() ;
 
+        let mut conditional: Vec<Node> = Vec::new() ;
         self.nodePush(Node::If);
-        // This is what we find inside the IF block (this includes
-        // the 'else' statement)
+
+        self.expression() ;
+        loop {
+
+            let curNode = self.nodes.last().unwrap().clone();
+            if curNode == Node::If {
+                break;
+            }
+            conditional.insert(0,self.nodes.pop().unwrap()) ;
+        }
+
         self.declaration();
 
         // Load the statements here
@@ -537,7 +544,7 @@ impl<'a> Compiler<'a> {
         }
 
         let ifNode = Node::Endif {
-            condition: Box::new(conditional),
+            condition: conditional,
             thenStatements: thenNodes,
             elseStatements: elseNodes,
             hasElse: thereIsAnElse
@@ -1001,10 +1008,10 @@ impl<'a> Compiler<'a> {
             } => {
                 // Execute the condition
 
-                let conditionDataType = self.walkTree(*condition, level + 2);
+                let beginLocation = currentLocation(self.chunk);
 
-                if conditionDataType != DataType::Bool {
-                    //self.errorAtAst("'if' condition must evaluate to true or false", 0);
+                for e in condition {
+                    self.walkTree(e, level + 2 );
                 }
 
                 // We jump from here if the IF resolves to FALSE

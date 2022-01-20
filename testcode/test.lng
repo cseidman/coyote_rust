@@ -1,6 +1,6 @@
 let x = 7
 let y = 10
-if x == 7 and y == 10 {
+if x == 70 and y == 10 {
     print "OK"
 } else {
     print "Oops..!"
