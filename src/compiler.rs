@@ -440,7 +440,6 @@ impl<'a> Compiler<'a> {
             INTEGER => self.integer(),
             FLOAT => self.float(),
             VARIABLE => self.variable(),
-            //BLOCKING => self.block(),
             AND => self.and_(),
             OR => self.or_(),
             _ => {}
@@ -479,18 +478,15 @@ impl<'a> Compiler<'a> {
 
     fn and_(&mut self) {
         self.parsePrecedence(PREC_AND);
-        let expr = self.nodes.pop().unwrap() ;
-        self.nodePush(Node::And {
-            expr: Box::new(expr)
-        })
+        let node =  self.nodes.pop().unwrap() ;
+        self.nodes.push(And {
+            expr: Box::new(node)
+        }) ;
     }
 
     fn or_(&mut self) {
         self.parsePrecedence(PREC_OR);
-        let expr = self.nodes.pop().unwrap() ;
-        self.nodePush(Node::Or {
-            expr: Box::new(expr)
-        })
+
     }
 
     fn ifStatement(&mut self) {
@@ -547,44 +543,20 @@ impl<'a> Compiler<'a> {
         self.nodePush(ifNode) ;
     }
 
-    fn logicalExpression(&mut self) -> Node {
-
-        let mut expr: Vec<Node> = Vec::new() ;
-
-        self.expression() ;
-        expr.insert(0,self.nodes.pop().unwrap()) ;
-
-        if self.t_match(TOKEN_AND) {
-            self.logicalExpression() ;
-
-            let andNode = Node::And {
-                expr: Box::new(self.nodes.pop().unwrap())
-            };
-
-            expr.insert(0,andNode) ;
-        }
-        if self.t_match(TOKEN_OR) {
-
-            self.logicalExpression() ;
-
-            let orNode = Node::Or {
-                expr: Box::new(self.nodes.pop().unwrap())
-            };
-
-            expr.insert(0,orNode) ;
-        }
-
-        Node::Logical {
-            expr
-        }
-
-    }
-
     fn whileStatement(&mut self) {
 
+        let mut conditional: Vec<Node> = Vec::new() ;
         self.nodePush(Node::While);
+
         self.expression() ;
-        let conditional = self.nodes.pop().unwrap();
+        loop {
+
+            let curNode = self.nodes.last().unwrap().clone();
+            if curNode == Node::While {
+                break;
+            }
+            conditional.insert(0,self.nodes.pop().unwrap()) ;
+        }
 
         self.declaration();
         let mut nodes: Vec<Node> = Vec::new() ;
@@ -598,7 +570,7 @@ impl<'a> Compiler<'a> {
         }
 
         let whileNode = Node::EndWhile {
-            condition: Box::new(conditional),
+            condition: conditional,
             statements: nodes
         } ;
 
@@ -1073,12 +1045,17 @@ impl<'a> Compiler<'a> {
             } => {
 
                 let beginLocation = currentLocation(self.chunk);
-                self.walkTree(*condition, level + 2 );
+
+                for e in condition {
+                    self.walkTree(e, level + 2 );
+                }
 
                 // We should have a logical value on the stack here
-                writeOp!(OP_JUMP_IF_FALSE, 0) ;
+                writeOp!(OP_JUMP_IF_FALSE_NOPOP, 0) ;
                 let jumpFromLocation = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
+
+                writeOp!(OP_POP, 0) ;
 
                 let mut breaks: Vec<usize> = Vec::new();
                 for n in statements {
@@ -1089,10 +1066,8 @@ impl<'a> Compiler<'a> {
                 }
 
                 let loc = currentLocation(self.chunk) ;
-                println!("loc: {} begin {}", loc, beginLocation) ;
-                let backJumpBy = loc - beginLocation+3;
-
                 writeOp!(OP_LOOP, 0) ;
+                let backJumpBy = loc - beginLocation+3;
                 writeOperand!(backJumpBy as u16) ;
 
                 backPatch(self.chunk, jumpFromLocation) ;
@@ -1100,6 +1075,8 @@ impl<'a> Compiler<'a> {
                 for b in breaks {
                     backPatch(self.chunk, b) ;
                 }
+
+                writeOp!(OP_POP, 0) ;
 
                 self.loopDepth-=1 ;
                 DataType::None

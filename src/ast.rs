@@ -141,7 +141,7 @@ pub enum Node {
     },
     //Loop,
     EndWhile {
-        condition: Box<Node>,
+        condition: Vec<Node>,
         statements: Vec<Node>
     },
     If,
