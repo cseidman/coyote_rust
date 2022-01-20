@@ -486,7 +486,10 @@ impl<'a> Compiler<'a> {
 
     fn or_(&mut self) {
         self.parsePrecedence(PREC_OR);
-
+        let node =  self.nodes.pop().unwrap() ;
+        self.nodes.push(And {
+            expr: Box::new(node)
+        }) ;
     }
 
     fn ifStatement(&mut self) {

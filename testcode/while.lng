@@ -1,7 +1,11 @@
 let x = 0
-while x < 10 and x < 3 {
-    print x
+let y = 5
+while x < 3 or y > 4 {
+
     x = x+1
+    y = y+1
+
+    print x
 }
 print "Done!"
 
