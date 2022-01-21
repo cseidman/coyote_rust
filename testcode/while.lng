@@ -1,11 +1,19 @@
 let x = 0
-let y = 5
-while x < 3 or y > 4 {
+while x < 3 {
+    x = x + 1
+    if x == 1 {
+        print "Whoa"
+        continue
+    } else {
+        print x
+    }
 
-    x = x+1
-    y = y+1
+    if x == 2 {
 
-    print x
+        print "Amlost done"
+        break
+    }
+
 }
 print "Done!"
 

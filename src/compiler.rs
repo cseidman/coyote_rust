@@ -1,5 +1,5 @@
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, addStringConstant, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
+use crate::chunk::{Chunk, addStringConstant, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation, Location};
 use crate::value::{Value};
 use crate::scanner::*;
 use TokenType::* ;
@@ -350,6 +350,7 @@ impl<'a> Compiler<'a> {
         while !self.check(TOKEN_RIGHT_BRACE) && !self.check(TOKEN_EOF) {
             self.declaration()
         }
+        println!("There should be a rightbrace but instead I have {:?}", self.parser.current().tokenType);
         self.consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
     }
 
@@ -373,10 +374,12 @@ impl<'a> Compiler<'a> {
     }
 
     fn binary(&mut self) {
+
         let token = self.parser.previous() ;
         let operatorType = token.tokenType ;
         let rule = self.getRule(operatorType) ;
         let prec = rule.prec + 1 ;
+
         self.parsePrecedence(prec) ;
 
         let operator = match operatorType {
@@ -400,6 +403,7 @@ impl<'a> Compiler<'a> {
             lhs: Box::new(self.nodes.pop().unwrap())
         };
         self.nodePush(node);
+
     }
 
     fn getRule(&mut self, tokenType: TokenType) -> Rule {
@@ -497,6 +501,7 @@ impl<'a> Compiler<'a> {
         let mut conditional: Vec<Node> = Vec::new() ;
         self.nodePush(Node::If);
 
+        // This is the logical condition
         self.expression() ;
         loop {
 
@@ -507,7 +512,7 @@ impl<'a> Compiler<'a> {
             conditional.insert(0,self.nodes.pop().unwrap()) ;
         }
 
-        self.declaration();
+        self.statement();
 
         // Load the statements here
         let mut thenNodes: Vec<Node> = Vec::new() ;
@@ -524,13 +529,11 @@ impl<'a> Compiler<'a> {
                 break;
             }
         }
-        // Capture the "ELSE" if there is one
-        self.declaration() ;
 
         // If we hit an 'else' node, then that means that
         if self.nodes.last().unwrap().clone() == Node::Else {
             thereIsAnElse = true ;
-            self.declaration() ;
+            self.statement() ;
 
             loop {
                 let curNode = self.nodes.last().unwrap().clone();
@@ -568,7 +571,7 @@ impl<'a> Compiler<'a> {
             conditional.insert(0,self.nodes.pop().unwrap()) ;
         }
 
-        self.declaration();
+        self.statement();
         let mut nodes: Vec<Node> = Vec::new() ;
 
         loop {
@@ -597,7 +600,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn continueStatement(&mut self) {
-
+        self.nodePush(Node::Continue);
     }
 
     fn beginScope(&mut self) {
@@ -932,7 +935,10 @@ impl<'a> Compiler<'a> {
                 let loc = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
                 writeOp!(OP_POP,0) ;
-                self.walkTree(*expr, level + 2 );
+
+                if self.walkTree(*expr, level + 2 ) != DataType::Bool {
+                    self.errorAtAst("Condition on the right of AND must evaluate to True or False", 0);
+                }
 
                 backPatch(self.chunk, loc ) ;
 
@@ -953,7 +959,9 @@ impl<'a> Compiler<'a> {
                 backPatch(self.chunk, loc) ;
                 writeOp!(OP_POP,0) ;
 
-                self.walkTree(*expr, level + 2 );
+                if self.walkTree(*expr, level + 2 ) != DataType::Bool {
+                    self.errorAtAst("Condition on the right of OR must evaluate to True or False", 0);
+                }
 
                 backPatch(self.chunk, jmp ) ;
                 DataType::Bool
@@ -1006,12 +1014,15 @@ impl<'a> Compiler<'a> {
                 elseStatements,
                 hasElse
             } => {
-                // Execute the condition
 
                 let beginLocation = currentLocation(self.chunk);
 
+                // Collect all the logical condition expressions
                 for e in condition {
-                    self.walkTree(e, level + 2 );
+                    let dataType = self.walkTree(e, level + 2 ) ;
+                    if dataType != DataType::Bool {
+                        self.errorAtAst("IF condition must evaluate to True or False", 0) ;
+                    }
                 }
 
                 // We jump from here if the IF resolves to FALSE
@@ -1019,30 +1030,76 @@ impl<'a> Compiler<'a> {
                 let jumpFromLocation = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
 
+                // The commands that execute if the statement is true
                 for n in thenStatements {
+
+                    if n == Node::Break {
+                        // Jump to the end of the parent loop
+                        writeOp!(OP_JUMP, 0) ;
+                        let jumpfromInner = self.chunk.addLocation("innerbreak");
+                        writeOperand!(jumpfromInner as u16) ;
+                    }
+
+                    if n == Node::Continue {
+
+                        writeOp!(OP_LOOP, 0) ;
+                        let loc = currentLocation(self.chunk) ;
+                        let continueTo = loc - self.chunk.popLocation("innercontinue")+2;
+                        writeOperand!(continueTo as u16) ;
+                    }
+
                     self.walkTree(n, level +2);
+
                 }
 
                 let mut afterElseLoc = 0 ;
 
                 // After the THEN, we skip straight to the
                 // end if there is an ELSE. If not, just keep going
-
                 if hasElse {
 
+                    // If the condition was true, then, we hit this Jump to the
+                    // end of the IF statement so we skip over the Else
                     writeOp!(OP_JUMP, 0) ;
                     afterElseLoc = currentLocation(self.chunk);
                     writeOperand!(9999_u16) ;
+
+                    // If on the other hand, the statement was false, we would have
+                    // skipped over the THEN part of of the language and wound up here
                     backPatch(self.chunk, jumpFromLocation) ;
 
+                    // The block of ELSE statements
                     for n in elseStatements {
+
+                        if n == Node::Break {
+                            // Jump to the end of the parent loop
+                            writeOp!(OP_JUMP, 0) ;
+                            let jumpfromInner = self.chunk.addLocation("innerbreak");
+                            writeOperand!(jumpfromInner as u16) ;
+                        }
+
+                        if n == Node::Continue {
+
+                            writeOp!(OP_LOOP, 0) ;
+                            let loc = currentLocation(self.chunk) ;
+                            let continueTo = loc - self.chunk.popLocation("innercontinue")+2;
+                            writeOperand!(continueTo as u16) ;
+                        }
+
+
                         self.walkTree(n, level +2);
                     }
                 } else {
+                    // The statement was false, we would have
+                    // skipped over the THEN part of of the language
+                    // at the end of the statement right here
                     backPatch(self.chunk, jumpFromLocation) ;
                 }
 
                 if hasElse {
+                    // If the condition was true, then, we hit this Jump to the
+                    // end of the IF statement so we skip over the Else and wind up
+                    // here
                     backPatch(self.chunk, afterElseLoc);
                 }
 
@@ -1054,10 +1111,15 @@ impl<'a> Compiler<'a> {
                 statements
             } => {
 
-                let beginLocation = currentLocation(self.chunk);
+                let beginLocation = self.chunk.addLocation("while");
+                self.chunk.addLocation("innercontinue") ;
 
+                // Collect all the logical condition expressions
                 for e in condition {
-                    self.walkTree(e, level + 2 );
+                    let dataType = self.walkTree(e, level + 2 ) ;
+                    if dataType != DataType::Bool {
+                        self.errorAtAst("WHILE condition must evaluate to True or False", 0) ;
+                    }
                 }
 
                 // We should have a logical value on the stack here
@@ -1067,12 +1129,22 @@ impl<'a> Compiler<'a> {
 
                 writeOp!(OP_POP, 0) ;
 
-                let mut breaks: Vec<usize> = Vec::new();
+                // All the statements inside the WHILE block
                 for n in statements {
+
                     if n == Node::Break {
-                        breaks.push(currentLocation(self.chunk)+1);
+                        self.chunk.addLocation("innerbreak");
                     }
+
+                    if n == Node::Continue {
+                        let loc = currentLocation(self.chunk) ;
+                        writeOp!(OP_LOOP, 0) ;
+                        let continueTo = loc - beginLocation+3;
+                        writeOperand!(continueTo as u16) ;
+                    }
+
                     self.walkTree(n, level +2);
+
                 }
 
                 let loc = currentLocation(self.chunk) ;
@@ -1082,18 +1154,20 @@ impl<'a> Compiler<'a> {
 
                 backPatch(self.chunk, jumpFromLocation) ;
 
-                for b in breaks {
-                    backPatch(self.chunk, b) ;
-                }
+                self.chunk.backpatchInner("innerbreak") ;
 
                 writeOp!(OP_POP, 0) ;
 
+                self.chunk.popLocation("while") ;
+
                 self.loopDepth-=1 ;
+                self.chunk.locations.pop();
                 DataType::None
             },
 
             Node::While => {
                 self.loopDepth+=1 ;
+                self.chunk.locations.push(Location::new()) ;
                 DataType::None
             },
 

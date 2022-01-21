@@ -3,6 +3,7 @@ use crate::value::{ValueArray, writeValueArray, Value};
 use crate::heapvalue::{MemPool, HeapValue, HeapValueArray};
 use crate::ast::JumpType;
 use crate::symbol::{SymbolTable};
+use std::collections::HashMap;
 /*
 const OP_UNKNOWN:u8 = 0;
 const OP_RETURN:u8 = 1;
@@ -148,6 +149,64 @@ impl From<u8> for OpCode {
     }
 }
 
+pub struct Location {
+    pub locations: HashMap<String, Vec<usize>>
+}
+
+impl Location {
+
+    pub fn new() -> Self {
+        Self {
+            locations: HashMap::new()
+        }
+    }
+
+    pub fn addLocation(&mut self, tag: &str, location: usize) -> usize {
+
+        // Initilize a new vector for this tag if it's the
+        // first time we use it
+        if ! self.locations.contains_key(tag) {
+            self.locations.insert(tag.to_string(), Vec::new()) ;
+        }
+
+        self.locations.get_mut(tag).unwrap().push(location) ;
+        location
+
+    }
+
+    pub fn peekLocation(&mut self, tag: &str) -> usize {
+
+        if ! self.locations.contains_key(tag) {
+            panic!("Location tag {} does not exist", tag) ;
+        }
+
+        self.locations.get_mut(tag)
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone()
+
+    }
+
+    pub fn popLocation(&mut self, tag: &str) -> usize {
+
+        if ! self.locations.contains_key(tag) {
+            panic!("Location tag {} does not exist", tag) ;
+        }
+
+        self.locations.get_mut(tag)
+            .unwrap()
+            .pop()
+            .unwrap()
+
+    }
+
+    pub fn hasKey(&self, tag: &str) -> bool {
+        self.locations.contains_key(tag)
+    }
+
+}
+
 pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
@@ -155,7 +214,8 @@ pub struct Chunk {
     pub lines: Vec<usize>,
     pub symbTable: SymbolTable,
 
-    pub whileLocation: Vec<usize>
+    pub locations: Vec<Location>,
+    pub locationPtr: usize
 }
 
 impl Chunk {
@@ -166,10 +226,54 @@ impl Chunk {
             heapConstants: HeapValueArray::new() ,
             symbTable: SymbolTable::new(),
             lines: Vec::new(),
-            whileLocation: Vec::new()
+
+            locations: Vec::new(),
+            locationPtr: 0
         }
     }
+
+    pub fn backpatchInner(&mut self, tag: &str) {
+
+        let ptr = self.locationPtr ;
+        if self.locations[ptr].locations.contains_key(tag) {
+            for b in self.locations[ptr].locations[tag].clone() {
+                backPatch(self, b);
+            }
+        }
+
+    }
+
+    pub fn addLocation(&mut self, tag: &str) -> usize {
+
+        let location = currentLocation(self) ;
+        self.addSpecificLocation(tag, location)
+    }
+
+    pub fn addSpecificLocation(&mut self, tag: &str, location: usize) -> usize {
+
+        let ptr = self.locationPtr ;
+
+        self.locations[ptr].addLocation(tag, location);
+        location
+    }
+
+    pub fn peekLocation(&mut self, tag: &str) -> usize {
+
+        let ptr = self.locationPtr ;
+        self.locations[ptr].peekLocation(tag)
+
+    }
+
+    pub fn popLocation(&mut self, tag: &str) -> usize {
+
+        let ptr = self.locationPtr ;
+        self.locations[ptr].popLocation(tag)
+
+    }
+
 }
+
+
 
 pub fn initChunk(chunk: &mut Chunk) {
     chunk.code = Vec::new() ;
