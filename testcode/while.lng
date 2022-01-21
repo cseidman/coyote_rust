@@ -1,17 +1,11 @@
 let x = 0
+
 while x < 3 {
-    x = x + 1
-    if x == 1 {
-        print "Whoa"
-        continue
-    } else {
-        print x
-    }
-
-    if x == 2 {
-
-        print "Amlost done"
-        break
+    x = x+1
+    let y = 10
+    while y < 13 {
+        print x * y
+        y = y+1
     }
 
 }

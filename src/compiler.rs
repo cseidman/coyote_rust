@@ -350,7 +350,6 @@ impl<'a> Compiler<'a> {
         while !self.check(TOKEN_RIGHT_BRACE) && !self.check(TOKEN_EOF) {
             self.declaration()
         }
-        println!("There should be a rightbrace but instead I have {:?}", self.parser.current().tokenType);
         self.consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
     }
 
@@ -504,8 +503,8 @@ impl<'a> Compiler<'a> {
         // This is the logical condition
         self.expression() ;
         loop {
-
             let curNode = self.nodes.last().unwrap().clone();
+
             if curNode == Node::If {
                 break;
             }
@@ -522,27 +521,36 @@ impl<'a> Compiler<'a> {
 
         loop {
             let curNode = self.nodes.last().unwrap().clone();
+            if curNode == Node::If {
+                self.nodes.pop() ;
+                break;
+            }
             // Since we're popping the values off the node stack, we know
             // that we need to stop at the IF statement
             thenNodes.insert(0,self.nodes.pop().unwrap()) ;
-            if curNode == Node::If {
-                break;
-            }
+
+
         }
+
+        self.statement() ;
 
         // If we hit an 'else' node, then that means that
         if self.nodes.last().unwrap().clone() == Node::Else {
+
             thereIsAnElse = true ;
             self.statement() ;
 
             loop {
                 let curNode = self.nodes.last().unwrap().clone();
                 // Since we're popping the values off the node stack, we know
-                // that we need to stop at the IF statement
-                elseNodes.insert(0,self.nodes.pop().unwrap()) ;
+                // that we need to stop at the ELSE statement
                 if curNode == Node::Else {
+                    self.nodes.pop() ;
                     break;
                 }
+                elseNodes.insert(0,self.nodes.pop().unwrap()) ;
+
+
             }
         }
 
@@ -562,6 +570,7 @@ impl<'a> Compiler<'a> {
         self.nodePush(Node::While);
 
         self.expression() ;
+        // Conditional Statements
         loop {
 
             let curNode = self.nodes.last().unwrap().clone();
@@ -576,7 +585,10 @@ impl<'a> Compiler<'a> {
 
         loop {
             let curNode = self.nodes.last().unwrap().clone();
-            if curNode == Node::While {
+            if curNode == Node::While  {
+                // We don't need this while anymore. This paves the way
+                // for any nested 'while' statements
+                self.nodes.pop();
                 break;
             }
             nodes.insert(0,self.nodes.pop().unwrap()) ;
@@ -878,8 +890,9 @@ impl<'a> Compiler<'a> {
                 varExpr
             } => {
                 let datatype = self.walkTree(*varExpr, level + 2);
-                let loc = self.addVariable(name, datatype) ;
+                let loc = self.addVariable(name.clone(), datatype) ;
                 writeOp!(OP_SETVAR, 0);
+                self.chunk.addComment(format!("Declare and store variable {}", name)) ;
                 writeOperand!(loc as u16);
 
                 datatype
@@ -890,7 +903,7 @@ impl<'a> Compiler<'a> {
                 datatype,
                 child
             } => {
-                let symbol = self.getVariable(name) ;
+                let symbol = self.getVariable(name.clone()) ;
                 let valueDataType = self.walkTree(*child, level + 2);
 
                 let mut varType = datatype ;
@@ -900,6 +913,7 @@ impl<'a> Compiler<'a> {
                 // Todo: Check that the variable type matches the value type
 
                 writeOp!(OP_SETVAR, 0);
+                self.chunk.addComment(format!("Store variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
                 varType
@@ -909,9 +923,10 @@ impl<'a> Compiler<'a> {
                 name
             } => {
 
-                let symbol = self.getVariable(name) ;
+                let symbol = self.getVariable(name.clone()) ;
 
                 writeOp!(OP_LOADVAR, 0);
+                self.chunk.addComment(format!("Load variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
                 symbol.datatype
@@ -988,15 +1003,6 @@ impl<'a> Compiler<'a> {
 
             Node::Break => {
 
-                if self.loopDepth == 0 {
-                    self.errorAtAst("'break' must be inside a loop", 0) ;
-                }
-
-                writeOp!(OP_JUMP, 0);
-                let loc = currentLocation(self.chunk) ;
-                writeOperand!(9999_u16) ;
-
-                self.jump.push(loc) ;
                 DataType::None
 
             },
@@ -1111,7 +1117,10 @@ impl<'a> Compiler<'a> {
                 statements
             } => {
 
-                let beginLocation = self.chunk.addLocation("while");
+                self.loopDepth+=1 ;
+                self.chunk.pushScope() ;
+
+                let beginLocation = currentLocation(self.chunk);
                 self.chunk.addLocation("innercontinue") ;
 
                 // Collect all the logical condition expressions
@@ -1158,16 +1167,14 @@ impl<'a> Compiler<'a> {
 
                 writeOp!(OP_POP, 0) ;
 
-                self.chunk.popLocation("while") ;
-
                 self.loopDepth-=1 ;
-                self.chunk.locations.pop();
+                self.chunk.popScope() ;
                 DataType::None
             },
 
             Node::While => {
-                self.loopDepth+=1 ;
-                self.chunk.locations.push(Location::new()) ;
+
+
                 DataType::None
             },
 

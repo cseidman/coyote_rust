@@ -1,4 +1,4 @@
-use crate::chunk::{Chunk,OpCode};
+use crate::chunk::{Chunk, OpCode, currentLocation};
 use crate::value::{printValue};
 use crate::common::{BytesToU16};
 use std::convert::Into;
@@ -15,13 +15,41 @@ fn valueInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     offset + 2
 }
 
+fn varInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
+    let offset = offset+1 ;
+    let constant = BytesToU16(&chunk.code[offset..offset+2]) ;
+    print!("{:16} {} ", name, constant);
+    println!(" : {}", chunk.getComment(offset-1)) ;
+    offset + 2
+}
+
+
 fn constantInstruction(name: &str, chunk: &Chunk, offset: usize) -> usize {
     let constant = chunk.code[offset+1] as usize;
-    print!("{:16} {} '", name, constant);
+    print!("{:16} {} ", name, constant);
     let val = chunk.constants.values[constant] ;
+    print!(" : Value: ") ;
     printValue(val) ;
-    println!("'") ;
+    println!();
     offset +3
+}
+
+fn jumpFowardInstruction(name: &str,chunk: &Chunk, offset: usize) -> usize {
+    let offset = offset+1 ;
+    let constant = BytesToU16(&chunk.code[offset..offset+2]) ;
+    print!("{:16} {} ", name, constant);
+    let newLocation = offset + (constant as usize)+2;
+    println!(" : Jump to {}", newLocation) ;
+    offset + 2
+}
+
+fn jumpBackInstruction(name: &str,chunk: &Chunk, offset: usize) -> usize {
+    let offset = offset+1 ;
+    let constant = BytesToU16(&chunk.code[offset..offset+2]) ;
+    print!("{:16} {} ", name, constant);
+    let newLocation = offset - (constant as usize)+2;
+    println!(" : Jump to {}", newLocation) ;
+    offset + 2
 }
 
 pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
@@ -82,13 +110,13 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_FALSE
         | OpCode::OP_SPRINT
         | OpCode::OP_PRINT => simpleInstruction(display!(instruction), offset),
-        OpCode::OP_PUSH
-        | OpCode::OP_LOOP
-        | OpCode::OP_JUMP_IF_FALSE
-        | OpCode::OP_JUMP_IF_FALSE_NOPOP
-        | OpCode::OP_JUMP
-        | OpCode::OP_LOADVAR
-        | OpCode::OP_SETVAR => valueInstruction(display!(instruction),  chunk, offset),
+        OpCode::OP_LOOP
+        | OpCode::OP_JUMP => jumpBackInstruction(display!(instruction),  chunk, offset),
+         OpCode::OP_JUMP_IF_FALSE
+        | OpCode::OP_JUMP_IF_FALSE_NOPOP => jumpFowardInstruction(display!(instruction),  chunk, offset),
+        OpCode::OP_PUSH=> valueInstruction(display!(instruction),  chunk, offset),
+        OpCode::OP_LOADVAR
+        | OpCode::OP_SETVAR => varInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_SCONSTANT
         | OpCode::OP_CONSTANT => constantInstruction(display!(instruction), chunk, offset),
         _ => {

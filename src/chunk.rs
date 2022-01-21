@@ -4,34 +4,7 @@ use crate::heapvalue::{MemPool, HeapValue, HeapValueArray};
 use crate::ast::JumpType;
 use crate::symbol::{SymbolTable};
 use std::collections::HashMap;
-/*
-const OP_UNKNOWN:u8 = 0;
-const OP_RETURN:u8 = 1;
-const OP_CONSTANT:u8 = 2;
-const OP_IADD:u8 = 3;
-const OP_ISUBTRACT:u8 = 4;
-const OP_IMULTIPLY:u8 = 5;
-const OP_IDIVIDE:u8 = 6;
-const OP_INEGATE:u8 = 7
-const OP_NIL:u8 = 8;
-const OP_TRUE:u8 = 9;
-const OP_FALSE:u8 = 10 ;
-const OP_NOT:u8 = 11;
-const OP_EQUAL:u8 = 12;
-const OP_GREATER:u8 = 14;
-const OP_LESS:u8 = 15;
-const OP_PUSH:u8 = 16;
-const OP_IPOP:u8 = 17;
-const OP_FPOP:u8 = 18;
-const OP_SPOP:u8 = 19;
-const OP_PRINT:u8 = 20;
-const OP_FNEGATE:u8 = 21;
-const OP_FADD:u8 = 22;
-const OP_FSUBTRACT:u8 = 23;
-const OP_FMULTIPLY:u8 = 24;
-const OP_FDIVIDE:u8 = 25;
-const OP_SCONSTANT:u8 = 26;
-*/
+
 #[derive(Copy, Clone, Debug, PartialOrd, PartialEq)]
 pub enum OpCode {
     OP_RETURN,
@@ -214,6 +187,8 @@ pub struct Chunk {
     pub lines: Vec<usize>,
     pub symbTable: SymbolTable,
 
+    pub comments: HashMap<usize, String>,
+
     pub locations: Vec<Location>,
     pub locationPtr: usize
 }
@@ -227,14 +202,36 @@ impl Chunk {
             symbTable: SymbolTable::new(),
             lines: Vec::new(),
 
+            comments: HashMap::new(),
+
             locations: Vec::new(),
             locationPtr: 0
         }
     }
 
+    pub fn addComment(&mut self, comment: String) {
+        let loc = currentLocation(self) ;
+        self.comments.insert(loc, comment) ;
+    }
+
+    pub fn getComment(&self, location: usize) -> String {
+        let val = self.comments.get(&location) ;
+        val.unwrap().clone()
+    }
+
+    pub fn pushScope(&mut self) {
+        self.locations.push(Location::new()) ;
+        self.locationPtr+=1
+    }
+
+    pub fn popScope(&mut self) {
+        self.locations.pop() ;
+        self.locationPtr-=1 ;
+    }
+
     pub fn backpatchInner(&mut self, tag: &str) {
 
-        let ptr = self.locationPtr ;
+        let ptr = self.locationPtr-1 ;
         if self.locations[ptr].locations.contains_key(tag) {
             for b in self.locations[ptr].locations[tag].clone() {
                 backPatch(self, b);
@@ -244,14 +241,13 @@ impl Chunk {
     }
 
     pub fn addLocation(&mut self, tag: &str) -> usize {
-
         let location = currentLocation(self) ;
         self.addSpecificLocation(tag, location)
     }
 
     pub fn addSpecificLocation(&mut self, tag: &str, location: usize) -> usize {
 
-        let ptr = self.locationPtr ;
+        let ptr = self.locationPtr-1 ;
 
         self.locations[ptr].addLocation(tag, location);
         location
@@ -259,14 +255,14 @@ impl Chunk {
 
     pub fn peekLocation(&mut self, tag: &str) -> usize {
 
-        let ptr = self.locationPtr ;
+        let ptr = self.locationPtr-1 ;
         self.locations[ptr].peekLocation(tag)
 
     }
 
     pub fn popLocation(&mut self, tag: &str) -> usize {
 
-        let ptr = self.locationPtr ;
+        let ptr = self.locationPtr-1 ;
         self.locations[ptr].popLocation(tag)
 
     }

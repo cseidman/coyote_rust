@@ -178,7 +178,7 @@ impl<'a> VM<'a> {
 
         loop {
 
-            self.debug();
+            //self.debug();
             let instruction:OpCode = READ_BYTE!().into();
 
             match instruction {
