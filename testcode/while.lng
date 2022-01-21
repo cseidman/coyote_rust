@@ -2,9 +2,14 @@ let x = 0
 
 while x < 3 {
     x = x+1
+
+    if x == 2 {
+        print "CONTINUE"
+    }
+
     let y = 10
     while y < 13 {
-        print x * y
+        print x*y
         y = y+1
     }
 

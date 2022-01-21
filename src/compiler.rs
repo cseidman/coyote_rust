@@ -30,6 +30,8 @@ const PREC_UNARY: u8 = 8 ;      // ! -
 const PREC_CALL: u8 = 9 ;       // . ()
 const PREC_PRIMARY: u8 = 10 ;
 
+const PRINT_NODES: bool = false ;
+
 #[derive(PartialEq)]
 enum ExpFunctions {
     NONE,
@@ -107,16 +109,6 @@ impl Parser {
     }
 }
 
-pub struct IlCode {
-    op: OpCode,
-    operand: Option<u16>,
-    datatype: DataType,
-    comment: String,
-    start: usize,
-    length: u8,
-    line: usize
-}
-
 macro_rules! currentChunk {
     ($self:ident) => {
         &mut $self.chunk
@@ -137,8 +129,6 @@ pub struct Compiler<'a>  {
     pub breakjump: Vec<usize>,
     pub loopDepth: usize,
 
-    pub ilcode: Vec<IlCode>,
-    pub currentIl: usize
 }
 
 impl<'a> Compiler<'a> {
@@ -157,8 +147,6 @@ impl<'a> Compiler<'a> {
             breakjump: Vec::new(),
             loopDepth: 0,
 
-            ilcode: Vec::new(),
-            currentIl: 0
         }
     }
 
@@ -276,8 +264,10 @@ impl<'a> Compiler<'a> {
         let token = self.parser.previous();
         let label= token.label.to_string();
 
+
+
         match token.tokenType {
-            TOKEN_FALSE => self.nodePush(
+           TOKEN_FALSE => self.nodePush(
                 Node::Value {
                     line: token.line,
                     label,
@@ -500,65 +490,40 @@ impl<'a> Compiler<'a> {
         let mut conditional: Vec<Node> = Vec::new() ;
         self.nodePush(Node::If);
 
+
         // This is the logical condition
+        let nodePosition = self.nodes.len()-1 ;
         self.expression() ;
+
         loop {
             let curNode = self.nodes.last().unwrap().clone();
-
-            if curNode == Node::If {
+            let curPos = self.nodes.len() -1 ;
+            if nodePosition == curPos {
                 break;
             }
             conditional.insert(0,self.nodes.pop().unwrap()) ;
         }
 
-        self.statement();
-
         // Load the statements here
-        let mut thenNodes: Vec<Node> = Vec::new() ;
-        let mut elseNodes: Vec<Node> = Vec::new() ;
 
-        let mut thereIsAnElse = false ;
+        let mut nodes: Vec<Node> = Vec::new() ;
+        let nodePosition = self.nodes.len()-1 ;
+        self.statement() ;
 
         loop {
             let curNode = self.nodes.last().unwrap().clone();
-            if curNode == Node::If {
-                self.nodes.pop() ;
+            // Since we're popping the values off the node stack, we know
+            // that we need to stop at the ELSE statement
+            let curPos = self.nodes.len() -1 ;
+            if nodePosition == curPos {
                 break;
             }
-            // Since we're popping the values off the node stack, we know
-            // that we need to stop at the IF statement
-            thenNodes.insert(0,self.nodes.pop().unwrap()) ;
-
-
-        }
-
-        self.statement() ;
-
-        // If we hit an 'else' node, then that means that
-        if self.nodes.last().unwrap().clone() == Node::Else {
-
-            thereIsAnElse = true ;
-            self.statement() ;
-
-            loop {
-                let curNode = self.nodes.last().unwrap().clone();
-                // Since we're popping the values off the node stack, we know
-                // that we need to stop at the ELSE statement
-                if curNode == Node::Else {
-                    self.nodes.pop() ;
-                    break;
-                }
-                elseNodes.insert(0,self.nodes.pop().unwrap()) ;
-
-
-            }
+            nodes.insert(0,self.nodes.pop().unwrap()) ;
         }
 
         let ifNode = Node::Endif {
             condition: conditional,
-            thenStatements: thenNodes,
-            elseStatements: elseNodes,
-            hasElse: thereIsAnElse
+            statements: nodes,
         } ;
 
         self.nodePush(ifNode) ;
@@ -567,31 +532,42 @@ impl<'a> Compiler<'a> {
     fn whileStatement(&mut self) {
 
         let mut conditional: Vec<Node> = Vec::new() ;
+
+        // Signals the beginning of the while
         self.nodePush(Node::While);
 
+        let nodePosition = self.nodes.len()-1 ;
+
+        // This is the logical expression
         self.expression() ;
-        // Conditional Statements
+
+        // Conditional Statements since the expression above
+        // could be made up of compound statements
         loop {
 
+            // Get the next node generated from the above
             let curNode = self.nodes.last().unwrap().clone();
-            if curNode == Node::While {
+
+            // If after popping the statements above, we find the
+            let curPos = self.nodes.len() -1 ;
+                if nodePosition == curPos {
                 break;
             }
             conditional.insert(0,self.nodes.pop().unwrap()) ;
         }
 
+        let nodePosition = self.nodes.len()-1 ;
         self.statement();
         let mut nodes: Vec<Node> = Vec::new() ;
 
         loop {
             let curNode = self.nodes.last().unwrap().clone();
-            if curNode == Node::While  {
-                // We don't need this while anymore. This paves the way
-                // for any nested 'while' statements
-                self.nodes.pop();
+            let curPos = self.nodes.len() -1 ;
+            if nodePosition == curPos {
                 break;
             }
             nodes.insert(0,self.nodes.pop().unwrap()) ;
+
         }
 
         let whileNode = Node::EndWhile {
@@ -604,7 +580,25 @@ impl<'a> Compiler<'a> {
     }
 
     fn elseStatement(&mut self) {
-        self.nodePush(Node::Else);
+
+        let mut nodes: Vec<Node> = Vec::new() ;
+        let nodePosition = self.nodes.len()-1 ;
+        self.statement() ;
+
+        loop {
+            let curNode = self.nodes.last().unwrap().clone();
+            // Since we're popping the values off the node stack, we know
+            // that we need to stop at the ELSE statement
+            let curPos = self.nodes.len() -1 ;
+            if nodePosition == curPos {
+                break;
+            }
+            nodes.insert(0,self.nodes.pop().unwrap()) ;
+        }
+
+        self.nodePush(Node::Else {
+            statements: nodes
+        });
     }
 
     fn breakStatement(&mut self) {
@@ -770,14 +764,25 @@ impl<'a> Compiler<'a> {
             };
         }
 
+
         match node {
             Node::Root { children: nodes } => {
+
+                if PRINT_NODES {
+                    println!("{:1$}", "Root", level) ;
+                }
+
                 for n in nodes {
                     self.walkTree(n, level);
                 }
                 DataType::None
             }
             Node::Value { line, label, value, dataType } => {
+
+                if PRINT_NODES {
+                    println!("{:level$}", label, level=level) ;
+                }
+
                 match dataType {
                     DataType::Nil => {
                         writeOp!(OP_NIL, line);
@@ -804,6 +809,11 @@ impl<'a> Compiler<'a> {
                 rhs
             } => {
 
+                if PRINT_NODES {
+                    println!("{:1$?}", op, level) ;
+                }
+
+
                 let mut l_type = self.walkTree(*lhs, level + 2);
                 let r_type = self.walkTree(*rhs, level + 2);
 
@@ -820,6 +830,7 @@ impl<'a> Compiler<'a> {
                         }
                     }
                 }
+
 
                 match format!("{}{}", l_type.emit(), op.emit()).as_str() {
                     "IADD" => {writeOp!(OP_IADD, line); DataType::Integer},
@@ -889,6 +900,11 @@ impl<'a> Compiler<'a> {
                 assigned,
                 varExpr
             } => {
+
+                if PRINT_NODES {
+                    println!("{:1$?}",name, level) ;
+                }
+
                 let datatype = self.walkTree(*varExpr, level + 2);
                 let loc = self.addVariable(name.clone(), datatype) ;
                 writeOp!(OP_SETVAR, 0);
@@ -903,6 +919,10 @@ impl<'a> Compiler<'a> {
                 datatype,
                 child
             } => {
+                if PRINT_NODES {
+                    println!("{:1$?}",name, level) ;
+                }
+
                 let symbol = self.getVariable(name.clone()) ;
                 let valueDataType = self.walkTree(*child, level + 2);
 
@@ -923,6 +943,10 @@ impl<'a> Compiler<'a> {
                 name
             } => {
 
+                if PRINT_NODES {
+                    println!("{:1$?}",name, level) ;
+                }
+
                 let symbol = self.getVariable(name.clone()) ;
 
                 writeOp!(OP_LOADVAR, 0);
@@ -933,11 +957,21 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Block => {
+
+                if PRINT_NODES {
+                    println!("{:1$?}","block", level) ;
+                }
+
                 self.chunk.symbTable.pushLevel();
                 DataType::None
             },
 
             Node::EndBlock => {
+
+                if PRINT_NODES {
+                    println!("{:1$?}","endblock", level) ;
+                }
+
                 self.chunk.symbTable.popLevel();
                 DataType::None
             },
@@ -945,6 +979,11 @@ impl<'a> Compiler<'a> {
             Node::And {
                 expr
             } => {
+
+                if PRINT_NODES {
+                    println!("{:1$?}","and", level) ;
+                }
+
 
                 writeOp!(OP_JUMP_IF_FALSE_NOPOP,0) ;
                 let loc = currentLocation(self.chunk);
@@ -963,6 +1002,11 @@ impl<'a> Compiler<'a> {
             Node::Or {
                 expr
             } => {
+
+                if PRINT_NODES {
+                    println!("{:1$?}","or", level) ;
+                }
+
                 writeOp!(OP_JUMP_IF_FALSE_NOPOP,0) ;
                 let loc = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
@@ -985,6 +1029,12 @@ impl<'a> Compiler<'a> {
             Node::Print {
                 printExpr
             } => {
+
+                if PRINT_NODES {
+                    println!("{:1$?}","print", level) ;
+                }
+
+
                 let datatype = self.walkTree(*printExpr, level + 2);
                 match datatype {
                     DataType::String => writeOp!(OP_SPRINT,0),
@@ -996,6 +1046,11 @@ impl<'a> Compiler<'a> {
             Node::Return {
                 returnVal
             } => {
+
+                if PRINT_NODES {
+                    println!("{:1$?}","return", level) ;
+                }
+
                 let datatype = self.walkTree(*returnVal, level + 2);
                 writeOp!(OP_RETURN,0);
                 datatype
@@ -1008,18 +1063,28 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Continue => {
+                if PRINT_NODES {
+                    println!("{:1$?}","continue", level) ;
+                }
+
                 DataType::None
             },
             Node::If => {
+                if PRINT_NODES {
+                    println!("{:1$?}","if", level) ;
+                }
+
                 DataType::None
             },
 
             Node::Endif {
                 condition,
-                thenStatements,
-                elseStatements,
-                hasElse
+                statements
             } => {
+
+                if PRINT_NODES {
+                    println!("{:1$?}","endif", level) ;
+                }
 
                 let beginLocation = currentLocation(self.chunk);
 
@@ -1037,7 +1102,7 @@ impl<'a> Compiler<'a> {
                 writeOperand!(9999_u16) ;
 
                 // The commands that execute if the statement is true
-                for n in thenStatements {
+                for n in statements {
 
                     if n == Node::Break {
                         // Jump to the end of the parent loop
@@ -1048,9 +1113,13 @@ impl<'a> Compiler<'a> {
 
                     if n == Node::Continue {
 
+                        self.nodes.pop() ;
+
                         writeOp!(OP_LOOP, 0) ;
                         let loc = currentLocation(self.chunk) ;
-                        let continueTo = loc - self.chunk.popLocation("innercontinue")+2;
+                        let inner = self.chunk.popLocation("innercontinue") ;
+
+                        let continueTo = loc - inner+2;
                         writeOperand!(continueTo as u16) ;
                     }
 
@@ -1058,59 +1127,49 @@ impl<'a> Compiler<'a> {
 
                 }
 
-                let mut afterElseLoc = 0 ;
-
-                // After the THEN, we skip straight to the
-                // end if there is an ELSE. If not, just keep going
-                if hasElse {
-
-                    // If the condition was true, then, we hit this Jump to the
-                    // end of the IF statement so we skip over the Else
-                    writeOp!(OP_JUMP, 0) ;
-                    afterElseLoc = currentLocation(self.chunk);
-                    writeOperand!(9999_u16) ;
-
-                    // If on the other hand, the statement was false, we would have
-                    // skipped over the THEN part of of the language and wound up here
-                    backPatch(self.chunk, jumpFromLocation) ;
-
-                    // The block of ELSE statements
-                    for n in elseStatements {
-
-                        if n == Node::Break {
-                            // Jump to the end of the parent loop
-                            writeOp!(OP_JUMP, 0) ;
-                            let jumpfromInner = self.chunk.addLocation("innerbreak");
-                            writeOperand!(jumpfromInner as u16) ;
-                        }
-
-                        if n == Node::Continue {
-
-                            writeOp!(OP_LOOP, 0) ;
-                            let loc = currentLocation(self.chunk) ;
-                            let continueTo = loc - self.chunk.popLocation("innercontinue")+2;
-                            writeOperand!(continueTo as u16) ;
-                        }
-
-
-                        self.walkTree(n, level +2);
-                    }
-                } else {
-                    // The statement was false, we would have
-                    // skipped over the THEN part of of the language
-                    // at the end of the statement right here
-                    backPatch(self.chunk, jumpFromLocation) ;
-                }
-
-                if hasElse {
-                    // If the condition was true, then, we hit this Jump to the
-                    // end of the IF statement so we skip over the Else and wind up
-                    // here
-                    backPatch(self.chunk, afterElseLoc);
-                }
+                // The statement was false, we would have
+                // skipped over the THEN part of of the language
+                // at the end of the statement right here
+                backPatch(self.chunk, jumpFromLocation) ;
 
                 DataType::None
-            }
+            },
+
+            Node::Else  {
+                statements
+            } => {
+                // If the condition was true, then, we hit this Jump to the
+                // end of the IF statement so we skip over the Else
+                writeOp!(OP_JUMP, 0) ;
+                let afterElseLoc = currentLocation(self.chunk);
+                writeOperand!(9999_u16) ;
+
+                // If on the other hand, the statement was false, we would have
+                // skipped over the THEN part of of the language and wound up here
+                //backPatch(self.chunk, jumpFromLocation) ;
+
+                // The block of ELSE statements
+                for n in statements {
+
+                    if n == Node::Break {
+                        // Jump to the end of the parent loop
+                        writeOp!(OP_JUMP, 0);
+                        let jumpfromInner = self.chunk.addLocation("innerbreak");
+                        writeOperand!(jumpfromInner as u16);
+                    }
+
+                    if n == Node::Continue {
+                        writeOp!(OP_LOOP, 0);
+                        let loc = currentLocation(self.chunk);
+                        let continueTo = loc - self.chunk.popLocation("innercontinue") + 2;
+                        writeOperand!(continueTo as u16);
+                    }
+                    self.walkTree(n, level +2);
+                }
+                backPatch(self.chunk, afterElseLoc) ;
+
+                DataType::None
+            },
 
             Node::EndWhile {
                 condition,
@@ -1156,9 +1215,9 @@ impl<'a> Compiler<'a> {
 
                 }
 
-                let loc = currentLocation(self.chunk) ;
                 writeOp!(OP_LOOP, 0) ;
-                let backJumpBy = loc - beginLocation+3;
+                let loc = currentLocation(self.chunk) ;
+                let backJumpBy = loc - beginLocation+2;
                 writeOperand!(backJumpBy as u16) ;
 
                 backPatch(self.chunk, jumpFromLocation) ;
@@ -1174,13 +1233,10 @@ impl<'a> Compiler<'a> {
 
             Node::While => {
 
-
                 DataType::None
             },
 
-            Node::Else => {
-                DataType::None
-            },
+
             Node::Logical {
                 expr
             } => {

@@ -269,8 +269,6 @@ impl Chunk {
 
 }
 
-
-
 pub fn initChunk(chunk: &mut Chunk) {
     chunk.code = Vec::new() ;
 }

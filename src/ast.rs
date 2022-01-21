@@ -145,12 +145,12 @@ pub enum Node {
         statements: Vec<Node>
     },
     If,
-    Else,
+    Else {
+        statements: Vec<Node>
+    },
     Endif {
         condition: Vec<Node>,
-        thenStatements: Vec<Node>,
-        elseStatements: Vec<Node>,
-        hasElse: bool
+        statements: Vec<Node>
     },
     While,
     Break,

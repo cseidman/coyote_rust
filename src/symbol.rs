@@ -1,5 +1,6 @@
 use crate::value::Value ;
 use crate::ast::DataType;
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct Symbol {
@@ -10,7 +11,7 @@ pub struct Symbol {
 }
 #[derive(Clone)]
 pub struct SymbolLevel {
-    symbols: Vec<Symbol>,
+    symbols: HashMap<String, Symbol>,
     level: usize,
     nextSlot: usize
 }
@@ -18,7 +19,7 @@ pub struct SymbolLevel {
 impl SymbolLevel {
     pub fn new() -> Self {
         Self {
-            symbols: Vec::new(),
+            symbols: HashMap::new(),
             level: 0,
             nextSlot: 0
         }
@@ -46,6 +47,14 @@ impl SymbolTable {
         t
     }
 
+    pub fn debug(&self) {
+        for l in self.symbolLevel.iter() {
+            for s in l.symbols.keys() {
+                println!("Level {} Symbol {}", l.level, s);
+            }
+        }
+    }
+
     pub fn pushLevel(&mut self) {
         let mut symbLevel = SymbolLevel::new() ;
         symbLevel.nextSlot = self.symbolLevel[self.level].nextSlot ;
@@ -68,12 +77,12 @@ impl SymbolTable {
         self.symbolLevel[self.level].nextSlot+=1 ;
 
         let symb = Symbol {
-            name,
+            name: name.clone(),
             level: self.level,
             location: currentSlot,
             datatype
         };
-        self.symbolLevel[self.level].symbols.push(symb) ;
+        self.symbolLevel[self.level].symbols.insert(name.clone(), symb) ;
         currentSlot
 
     }
@@ -82,10 +91,12 @@ impl SymbolTable {
         let mut lvl = self.level ;
         loop {
 
-            for symb in self.symbolLevel[lvl].symbols.iter() {
-                if name == symb.name {
-                    return Ok(symb.clone());
-                }
+            if self.symbolLevel[lvl].symbols.contains_key(&name) {
+                return Ok(self.symbolLevel[lvl]
+                    .symbols
+                    .get(&name)
+                    .unwrap()
+                    .clone());
             }
 
             // We're done
