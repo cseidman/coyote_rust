@@ -5,12 +5,13 @@ while x < 3 {
 
     if x == 2 {
         print "CONTINUE"
-    }
-
-    let y = 10
-    while y < 13 {
-        print x*y
-        y = y+1
+        let y = 10
+        while y < 13 {
+            print x*y
+            y = y+1
+        }
+    } else {
+        print x
     }
 
 }
