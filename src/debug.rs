@@ -27,7 +27,7 @@ fn varInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
 fn constantInstruction(name: &str, chunk: &Chunk, offset: usize) -> usize {
     let constant = chunk.code[offset+1] as usize;
     print!("{:16} {} ", name, constant);
-    let val = chunk.constants.values[constant] ;
+    let val = chunk.constants.values[constant].clone() ;
     print!(" : Value: ") ;
     printValue(val) ;
     println!();
@@ -116,7 +116,8 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_JUMP_IF_FALSE_NOPOP => jumpFowardInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_PUSH=> valueInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_LOADVAR
-        | OpCode::OP_SETVAR => varInstruction(display!(instruction),  chunk, offset),
+        | OpCode::OP_SETVAR
+        | OpCode::OP_NEWARRAY => varInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_SCONSTANT
         | OpCode::OP_CONSTANT => constantInstruction(display!(instruction), chunk, offset),
         _ => {

@@ -1,6 +1,4 @@
 #![macro_use]
-use crate::heapvalue::*;
-
 
 use std::fmt ;
 use std::fmt::{Formatter, Display};
@@ -48,18 +46,17 @@ pub fn writeValueArray(array: &mut ValueArray, value: Value) {
     array.values.push(value) ;
 }
 
-#[derive(Debug,Clone,Copy, PartialOrd)]
+#[derive(Debug,Clone, PartialOrd)]
 pub enum Value {
     integer(i64),
     float(f64),
-    i128(i128),
-    decimal(Decimal),
     logical(bool),
-    string(u16),
+    string(Rc<String>),
     dict(u16),
     array(u16),
     hash(u16),
-    nil
+    nil,
+    empty
 }
 
 impl Display for Value {
@@ -73,11 +70,12 @@ impl Display for Value {
                     write!(f, "false")
                 },
             Value::nil => write!(f, "nil"),
+            //Value::empty => write!(f, "(empty)"),
             //Value::array(_) => write!(f, "array"),
             //Value::dict(_) => write!(f, "dict"),
             Value::integer(x) => write!(f,"{}",x),
             Value::float(x) => write!(f,"{}",x),
-            //Value::string(x) => write!(f,"{}",x),
+            Value::string(x) => write!(f,"{}",x),
             _ => write!(f,"(Unknown)"),
         }
 
@@ -86,12 +84,26 @@ impl Display for Value {
 
 impl Value {
 
+    pub fn isNil(&self) -> bool {
+        if let Value::nil = self {
+           return true
+        }
+        false
+    }
+
+    pub fn isEmpty(&self) -> bool {
+        if let Value::empty = self {
+            return true
+        }
+        false
+    }
+
     pub fn get_integer(self) -> i64 {
         match self {
             Value::integer(x) => x,
             Value::float(x) => x as i64,
             _ => {
-                panic!("Value is not a number") ;
+                panic!("Value {:?} is not a number", self) ;
             }
         }
     }
@@ -114,11 +126,11 @@ impl Value {
         }
     }
 
-    pub fn get_string_pointer(self) -> u16 {
+    pub fn get_string(self) -> String {
         if let Value::string(x) = self {
-            x
+            x.to_string()
         } else {
-            panic!("Not a string pointer");
+            panic!("Not a string");
         }
     }
 
@@ -132,31 +144,17 @@ impl PartialEq for Value {
                 if let Value::integer(y) = other {
                     x==y
                 } else {
-                    panic!("Mismatch when trying to sub integers");
+                    panic!("Mismatch when trying to equate {:?} and {:?} instead of integers", self, other);
                 }
             },
             Value::float(x) => {
                 if let Value::float(y) = other {
                     x==y
                 } else {
-                    panic!("Mismatch when trying to sub floats");
+                    panic!("Mismatch when trying to equate floats");
                 }
             },
-            Value::i128(x) => {
-                if let Value::i128(y) = other {
-                    *x==*y
-                } else {
-                    panic!("Mismatch when trying to sub 128 bit integers");
-                }
-            },
-            Value::decimal(x) => {
-                if let Value::decimal(y) = other {
-                    *x==*y
-                } else {
-                    panic!("Mismatch when trying to sub decimals");
-                }
-            },
-            _=>panic!("Unable to subtract types")
+            _=>panic!("Unable to equate type {:?}", self )
         }
 
     }
@@ -166,7 +164,6 @@ impl PartialEq for Value {
 impl Sub for Value {
 
     type Output = Value;
-
 
     fn sub(self, rhs: Self) -> Value {
         match self {
@@ -182,20 +179,6 @@ impl Sub for Value {
                     Value::float(x-y)
                 } else {
                     panic!("Mismatch when trying to sub floats");
-                }
-            },
-            Value::i128(x) => {
-                if let Value::i128(y) = rhs {
-                    Value::i128(x-y)
-                } else {
-                    panic!("Mismatch when trying to sub 128 bit integers");
-                }
-            },
-            Value::decimal(x) => {
-                if let Value::decimal(y) = rhs {
-                    Value::decimal(x-y)
-                } else {
-                    panic!("Mismatch when trying to sub decimals");
                 }
             },
             _=>panic!("Unable to subtract types")
@@ -232,20 +215,7 @@ impl Add for Value {
                 }
             },
             */
-            Value::i128(x) => {
-                if let Value::i128(y) = rhs {
-                    Value::i128(x+y)
-                } else {
-                    panic!("Mismatch when trying to add 128 bit integers");
-                }
-            },
-            Value::decimal(x) => {
-                if let Value::decimal(y) = rhs {
-                    Value::decimal(x+y)
-                } else {
-                    panic!("Mismatch when trying to add decimals");
-                }
-            },
+
             _=>panic!("Unable to add types")
         }
     }

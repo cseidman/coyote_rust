@@ -1,5 +1,5 @@
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, addStringConstant, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation, Location};
+use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation, Location};
 use crate::value::{Value};
 use crate::scanner::*;
 use TokenType::* ;
@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use crate::ast::JumpPop::{NOPOP, POP};
 use crate::ast::Node::*;
+use std::rc::Rc;
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -47,6 +48,7 @@ enum ExpFunctions {
     STRING,
     VARIABLE,
     BLOCKING,
+    ARRAY_BUILD,
     AND,
     OR
 }
@@ -231,6 +233,23 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    pub fn arrayBuilder(&mut self) {
+        // We already consumed the left bracket
+        let mut arity: usize = 0 ;
+        let mut values: Vec<Node> = Vec::new() ;
+
+        while ! self.t_match(TOKEN_RIGHT_BRACKET) {
+            arity += 1 ;
+            self.expression() ;
+            let node = self.nodes.pop().unwrap();
+            values.push(node) ;
+        }
+        self.nodePush(Array {
+            arity,
+            values
+        }) ;
+    }
+
     fn expression(&mut self) {
         self.parsePrecedence(PREC_ASSIGNMENT) ;
     }
@@ -295,12 +314,12 @@ impl<'a> Compiler<'a> {
     fn text(&mut self) {
         let token = self.parser.previous() ;
         let label = token.name ;
-        let ptr = addStringConstant(self.chunk, label.clone()) as i64;
+
         self.nodePush(
             Node::Value {
                 line: token.line,
-                label,
-                value: Value::integer(ptr),
+                label: label.clone(),
+                value: Value::string(Rc::new(label)),
                 dataType: DataType::String
         });
     }
@@ -398,7 +417,7 @@ impl<'a> Compiler<'a> {
     fn getRule(&mut self, tokenType: TokenType) -> Rule {
         match tokenType {
             TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_NONE),
-            //TOKEN_LEFT_BRACE    => Rule::new(BLOCKING, NONE, PREC_NONE),
+            TOKEN_LEFT_BRACKET  => Rule::new(ARRAY_BUILD, NONE, PREC_NONE),
             TOKEN_MINUS
             | TOKEN_PLUS        => Rule::new(UNARY, BINARY , PREC_TERM),
             TOKEN_SLASH
@@ -435,7 +454,10 @@ impl<'a> Compiler<'a> {
             VARIABLE => self.variable(),
             AND => self.and_(),
             OR => self.or_(),
-            _ => {}
+            ARRAY_BUILD => self.arrayBuilder(),
+            _ => {
+                self.error("Binary expression {func} uknown") ;
+            }
          }
     }
 
@@ -480,13 +502,12 @@ impl<'a> Compiler<'a> {
     fn or_(&mut self) {
         self.parsePrecedence(PREC_OR);
         let node =  self.nodes.pop().unwrap() ;
-        self.nodes.push(And {
+        self.nodes.push(Or {
             expr: Box::new(node)
         }) ;
     }
 
     fn ifStatement(&mut self) {
-
         let mut conditional: Vec<Node> = Vec::new() ;
         self.nodePush(Node::If);
 
@@ -553,6 +574,7 @@ impl<'a> Compiler<'a> {
 
     fn whileStatement(&mut self) {
 
+        self.chunk.pushScope() ;
         let mut conditional: Vec<Node> = Vec::new() ;
 
         // Signals the beginning of the while
@@ -589,7 +611,6 @@ impl<'a> Compiler<'a> {
                 break;
             }
             nodes.insert(0,self.nodes.pop().unwrap()) ;
-
         }
 
         let whileNode = Node::EndWhile {
@@ -597,6 +618,7 @@ impl<'a> Compiler<'a> {
             statements: nodes
         } ;
 
+        self.chunk.popScope() ;
         self.nodePush(whileNode) ;
 
     }
@@ -748,6 +770,30 @@ impl<'a> Compiler<'a> {
 
     /** AST Operations **/
 
+    pub fn generateBreakStatement(&mut self) {
+        if self.loopDepth == 0 {
+            self.errorAtAst("BREAK statement must be inside a loop", 0);
+        }
+
+        // Jump to the end of the parent loop
+        writeChunk(self.chunk, OP_JUMP as u8, 0);
+        self.chunk.addLocation("innerbreak");
+        writeu16Chunk(self.chunk, 9999_u16, 0);
+    }
+
+    pub fn generateContinueStatement(&mut self) {
+        if self.loopDepth == 0 {
+            self.errorAtAst("BREAK statement must be inside a loop", 0);
+        }
+
+        writeChunk(self.chunk, OP_LOOP as u8, 0);
+        let loc = currentLocation(self.chunk) ;
+        let inner = self.chunk.popLocation("innercontinue") ;
+
+        let continueTo = loc - inner+2;
+        writeu16Chunk(self.chunk, continueTo as u16, 0);
+    }
+
     pub fn walkTree(&mut self, node: Node, level: usize) -> DataType {
 
         macro_rules! writeOp {
@@ -762,7 +808,6 @@ impl<'a> Compiler<'a> {
             };
         }
 
-
         match node {
             Node::Root { children: nodes } => {
                 for n in nodes {
@@ -776,7 +821,7 @@ impl<'a> Compiler<'a> {
                         writeOp!(OP_NIL, line);
                     },
                     DataType::String => {
-                        let constant_index = value.get_integer() as u16;
+                        let constant_index = self.makeConstant(value);
 
                         writeOp!(OP_SCONSTANT, line);
                         writeOperand!(constant_index);
@@ -788,6 +833,28 @@ impl<'a> Compiler<'a> {
                     }
                 }
                 dataType
+            },
+            Node::Array {
+                arity,
+                values
+            } => {
+
+                let mut dataType = DataType::Nil ;
+                for n in values {
+                    let tmpType = self.walkTree(n, level +2) ;
+                    if dataType == DataType::Nil || dataType == tmpType {
+                        dataType = tmpType ;
+                    } else {
+                        self.errorAtAst("Array must have the same data types", 0) ;
+                    }
+                }
+
+                let heap_index =  0;
+                writeOp!(OP_CONSTANT, 0);
+                writeOperand!(heap_index);
+
+                writeOp!(OP_NEWARRAY, 0) ;
+                DataType::Array
             },
 
             Node::BinaryExpr {
@@ -801,7 +868,7 @@ impl<'a> Compiler<'a> {
 
                 if l_type != r_type {
                     match (l_type, r_type) {
-                        (DataType::Float, DataType::Integer) => {},
+                        //(DataType::Float, DataType::Integer) => {},
                         (DataType::Integer, DataType::Float) => {
                             l_type = DataType::Float
                         },
@@ -812,7 +879,6 @@ impl<'a> Compiler<'a> {
                         }
                     }
                 }
-
 
                 match format!("{}{}", l_type.emit(), op.emit()).as_str() {
                     "IADD" => {writeOp!(OP_IADD, line); DataType::Integer},
@@ -868,11 +934,17 @@ impl<'a> Compiler<'a> {
                             DataType::Float => {
                                 writeOp!(OP_FNEGATE, line) ;
                             },
-                            _ => {}
+                            _ => {
+                                self.errorAtAst("Can only negate integer or float expressions", line);
+                            }
                         }
                     },
-                    Operator::Plus => {},
-                    _ => {}
+                    Operator::Plus => {
+
+                    },
+                    _ => {
+                        self.errorAtAst("Wrong unaryt expression", line);
+                    }
                 }
                 dataType
             },
@@ -993,16 +1065,14 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Break => {
-
                 DataType::None
-
             },
 
             Node::Continue => {
                 DataType::None
             },
             Node::If => {
-                self.chunk.pushScope() ;
+                //self.chunk.pushScope() ;
                 DataType::None
             },
 
@@ -1031,22 +1101,11 @@ impl<'a> Compiler<'a> {
                 for n in statements {
 
                     if n == Node::Break {
-                        // Jump to the end of the parent loop
-                        writeOp!(OP_JUMP, 0) ;
-                        let jumpfromInner = self.chunk.addLocation("innerbreak");
-                        writeOperand!(jumpfromInner as u16) ;
+                        self.generateBreakStatement() ;
                     }
 
                     if n == Node::Continue {
-
-                        self.nodes.pop() ;
-
-                        writeOp!(OP_LOOP, 0) ;
-                        let loc = currentLocation(self.chunk) ;
-                        let inner = self.chunk.popLocation("innercontinue") ;
-
-                        let continueTo = loc - inner+2;
-                        writeOperand!(continueTo as u16) ;
+                        self.generateContinueStatement() ;
                     }
 
                     self.walkTree(n, level +2);
@@ -1069,21 +1128,11 @@ impl<'a> Compiler<'a> {
                     for n in elsenode {
 
                         if n == Node::Break {
-                            // Jump to the end of the parent loop
-                            writeOp!(OP_JUMP, 0);
-                            let jumpfromInner = self.chunk.addLocation("innerbreak");
-                            writeOperand!(jumpfromInner as u16);
+                            self.generateBreakStatement() ;
                         }
 
                         if n == Node::Continue {
-                            self.nodes.pop();
-
-                            writeOp!(OP_LOOP, 0);
-                            let loc = currentLocation(self.chunk);
-                            let inner = self.chunk.popLocation("innercontinue");
-
-                            let continueTo = loc - inner + 2;
-                            writeOperand!(continueTo as u16);
+                           self.generateContinueStatement() ;
                         }
 
                         self.walkTree(n, level + 2);
@@ -1098,7 +1147,7 @@ impl<'a> Compiler<'a> {
                 if hasElse {
                     backPatch(self.chunk, afterElseJump);
                 }
-                self.chunk.popScope() ;
+                //self.chunk.popScope() ;
                 DataType::None
             },
 
@@ -1132,7 +1181,9 @@ impl<'a> Compiler<'a> {
                 for n in statements {
 
                     if n == Node::Break {
-                        self.chunk.addLocation("innerbreak");
+                        writeOp!(OP_JUMP, 0) ;
+                        self.chunk.addLocation("break");
+                        writeOperand!(9999_u16 as u16) ;
                     }
 
                     if n == Node::Continue {
@@ -1152,8 +1203,8 @@ impl<'a> Compiler<'a> {
                 writeOperand!(backJumpBy as u16) ;
 
                 backPatch(self.chunk, jumpFromLocation) ;
-
                 self.chunk.backpatchInner("innerbreak") ;
+                self.chunk.backpatchInner("break") ;
 
                 writeOp!(OP_POP, 0) ;
 
@@ -1163,7 +1214,6 @@ impl<'a> Compiler<'a> {
             },
 
             Node::While => {
-
                 DataType::None
             },
 

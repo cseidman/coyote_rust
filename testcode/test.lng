@@ -1,9 +1,5 @@
-let x = 7
-if x == 7  {
-    if x > 8 {
-        print "OK"
-    } else {
-        print "Oops"
-    }
-}
-print "Done!"
+let x = 10
+print x
+let y = 20
+let z = 30
+print x * y

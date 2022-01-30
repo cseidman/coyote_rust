@@ -1,6 +1,5 @@
 use crate::chunk::OpCode::*;
 use crate::value::{ValueArray, writeValueArray, Value};
-use crate::heapvalue::{MemPool, HeapValue, HeapValueArray};
 use crate::ast::JumpType;
 use crate::symbol::{SymbolTable};
 use std::collections::HashMap;
@@ -59,6 +58,7 @@ pub enum OpCode {
     OP_INEQ,
     OP_FNEQ,
     OP_SNEQ,
+    OP_NEWARRAY,
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -116,6 +116,7 @@ impl From<u8> for OpCode {
             49  => OP_INEQ,
             50  => OP_FNEQ,
             51  => OP_SNEQ,
+            52  => OP_NEWARRAY,
 
             _   => OP_UNKNOWN,
         }
@@ -183,7 +184,6 @@ impl Location {
 pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
-    pub heapConstants: HeapValueArray,
     pub lines: Vec<usize>,
     pub symbTable: SymbolTable,
 
@@ -198,7 +198,6 @@ impl Chunk {
         Chunk{
             code: Vec::new(),
             constants: ValueArray::new(),
-            heapConstants: HeapValueArray::new() ,
             symbTable: SymbolTable::new(),
             lines: Vec::new(),
 
@@ -282,13 +281,11 @@ pub fn currentLocation(chunk: &Chunk) -> usize {
 }
 
 pub fn backPatch(chunk: &mut Chunk, location: usize) {
-
     let currLoc = currentLocation(chunk);
     let val = ((currLoc - location-2) as u16).to_le_bytes() ;
 
     chunk.code[location+1] = val[0] ;
     chunk.code[location+2] = val[1] ;
-
 }
 
 pub fn writeChunk(chunk: &mut Chunk, byte: u8, line: usize) {
@@ -322,21 +319,3 @@ pub fn addConstant(chunk: &mut Chunk, value: Value) -> u16 {
     (chunk.constants.values.len()-1) as u16
 }
 
-pub fn addStringConstant(chunk: &mut Chunk, s: String) -> u16 {
-    // Get the index of the heap constant to use as a pointer
-    let curIndex = chunk.heapConstants.len() as u16;
-    // Add the this pointer to the constants
-    addConstant(chunk, Value::integer(curIndex as i64));
-    chunk.heapConstants.push(HeapValue::string(s)) ;
-    curIndex
-}
-
-pub fn getStringConstant(chunk: &mut Chunk,s: String) -> u16 {
-    for i in 0..(chunk.heapConstants.len()-1) {
-        let label = chunk.heapConstants[i].clone().getString() ;
-        if label == s {
-            return i as u16;
-        }
-    }
-    0_u16
-}

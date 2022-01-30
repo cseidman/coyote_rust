@@ -23,7 +23,7 @@ pub struct VM<'a> {
     chunk: Chunk,
     ip: usize,
     
-    stack: [Value;8000],
+    stack: Vec<Value>,
     stackTop: usize,
     
     frames: Vec<Frame<'a>>,
@@ -34,29 +34,37 @@ impl<'a> VM<'a> {
 
     pub fn new() -> Self {
 
-        VM {
+        let mut vm = VM {
             chunk: Chunk::new(),
             ip: 0,
-            stack:[Value::nil;8000],
-            stackTop: 20,
+            stack: Vec::with_capacity(16000000),
+            stackTop: 64000, // Start at an arbitrary position
             frames: Vec::new(),
+        } ;
+
+        for _ in 0 .. 64000 {
+            vm.stack.push(Value::empty);
         }
+        vm
     }
 
     pub fn push(&mut self, value:Value) {
-        self.stack[self.stackTop] = value;
+        //self.stack[self.stackTop] = value;
+        self.stack.push(value);
         self.stackTop+=1 ;
     }
 
     pub fn peek(&mut self, distance: usize) -> Value {
         let index = self.stackTop-1-distance ;
-        self.stack[index]
+        self.stack[index].clone()
     }
 
     pub fn pop(&mut self) -> Value {
         self.stackTop-=1 ;
-        let idx = self.stackTop ;
-        self.stack[idx]
+        //let idx = self.stackTop ;
+        //let value = self.stack[idx].clone() ;
+        self.stack.pop().unwrap()
+
     }
 
     pub fn reset(&mut self) {
@@ -84,9 +92,14 @@ impl<'a> VM<'a> {
     pub fn debug(&self) {
 
         print!("          ");
-        for slot in 20..self.stackTop {
+        for slot in 64000..self.stackTop {
+
+            let val = self.stack[slot].clone() ;
+            if val.isEmpty() {
+                continue;
+            }
+
             print!("[ ");
-            let val = self.stack[slot] ;
             printValue(val);
             print!(" ]");
         }
@@ -168,8 +181,8 @@ impl<'a> VM<'a> {
         macro_rules! CPSPOP {
             ($binop:tt) => {
                 {
-                    let rt = self.pop().get_string_pointer();
-                    let lt = self.pop().get_string_pointer() ;
+                    let rt = self.pop().get_string();
+                    let lt = self.pop().get_string() ;
                     let val = Value::logical(lt $binop rt) ;
                     self.push(val);
                 }
@@ -178,24 +191,24 @@ impl<'a> VM<'a> {
 
         loop {
 
-            //self.debug();
+            self.debug();
             let instruction:OpCode = READ_BYTE!().into();
 
             match instruction {
                 OP_RETURN => {
-                    self.pop();
+                    //self.pop();
                     return INTERPRET_OK
                 },
                 OP_CONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
-                    let constant = self.chunk.constants.values[constIndex] ;
+                    let constant = self.chunk.constants.values[constIndex].clone() ;
                     self.push(constant) ;
                 },
                 OP_SCONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
                     // This is the pointer to the string in the heapValue array
-                    let constant = self.chunk.constants.values[constIndex] ;
-                    self.push(constant) ;
+                    let stringValue = self.chunk.constants.values[constIndex].clone() ;
+                    self.push(stringValue) ;
                 },
                 OP_NIL => { self.push(Value::nil)},
                 OP_TRUE => { self.push(Value::logical(true))},
@@ -248,32 +261,37 @@ impl<'a> VM<'a> {
                   let value = !self.pop().get_bool();
                   self.push(Value::logical(value)) ;
                 },
+
                 OP_INEGATE => {
                     let value = -self.pop().get_integer();
                     self.push(Value::integer(value));
                 },
+
                 OP_FNEGATE => {
                     let value = -self.pop().get_float();
                     self.push(Value::float(value));
-                },
+                }
+
                 OP_LOADVAR => {
                     let slot = READ_OPERAND!() as usize;
-                    self.push(self.stack[slot]) ;
+                    self.push(self.stack[slot].clone()) ;
                 }
+
                 OP_SETVAR => {
                     let slot = READ_OPERAND!() as usize;
                     self.stack[slot] = self.pop() ;
-                }
+                 }
+
                 OP_PRINT => {
                     let data = self.pop() ;
                     println!("{}", data) ;
                 },
 
                 OP_SPRINT => {
-                    let data = self.pop().get_integer() as usize;
-                    let s = self.chunk.heapConstants[data].clone().getString() ;
+                    let s = self.pop().get_string();
                     println!("{}", s) ;
                 },
+
                 OP_JUMP_IF_FALSE => {
 
                     let logicalResult = self.pop().get_bool() ;
@@ -292,10 +310,13 @@ impl<'a> VM<'a> {
                     if !logicalResult {
                         self.ip += jumpto ;
                     }
+
                 },
+
                 OP_JUMP =>{
                     self.ip += READ_OPERAND!() as usize;
                 },
+
                 OP_LOOP => {
                     self.ip -= READ_OPERAND!() as usize
                 },
@@ -303,6 +324,11 @@ impl<'a> VM<'a> {
                 OP_NOP => {},
                 OP_POP => {
                     self.pop();
+                },
+
+                OP_NEWARRAY => {
+                    let arity = self.pop().get_integer() as usize;
+                    let aValue:Vec<Value> = Vec::with_capacity(arity) ;
                 }
                 _ => {return INTERPRET_OK}
             }

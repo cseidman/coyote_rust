@@ -1,19 +1,34 @@
 let x = 0
 
-while x < 3 {
+while x < 10 {
     x = x+1
-
     if x == 2 {
         print "CONTINUE"
         let y = 10
-        while y < 13 {
+        while y < 15 {
             print x*y
             y = y+1
+            if y == 15 {
+                break
+            }
         }
     } else {
         print x
     }
 
+    if x == 3 {
+        print "THREE"
+        continue
+    } else {
+        print "Not 4"
+    }
+    print "NEXT"
+
+
+    if x == 6 {
+        print "break"
+        break
+    }
 }
 print "Done!"
 

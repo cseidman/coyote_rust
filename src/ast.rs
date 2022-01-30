@@ -39,6 +39,7 @@ pub enum DataType {
     Float,
     String,
     Bool,
+    Array,
     Nil,
     None
 }
@@ -105,6 +106,11 @@ pub enum Node {
     },
     Logical {
         expr: Vec<Node>
+    },
+
+    Array {
+        arity: usize,
+        values: Vec<Node>
     },
 
     VarDecl {

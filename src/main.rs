@@ -18,12 +18,9 @@ mod value;
 mod vm;
 mod scanner;
 mod compiler;
-mod heapvalue;
 mod common;
 mod ast;
-mod memory;
 mod symbol;
-mod bookmark;
 mod errors;
 
 use std::fs ;
