@@ -241,6 +241,7 @@ impl<'a> Compiler<'a> {
         while ! self.t_match(TOKEN_RIGHT_BRACKET) {
             arity += 1 ;
             self.expression() ;
+            self.t_match(TOKEN_COMMA) ;
             let node = self.nodes.pop().unwrap();
             values.push(node) ;
         }
@@ -282,8 +283,6 @@ impl<'a> Compiler<'a> {
     fn literal(&mut self) {
         let token = self.parser.previous();
         let label= token.label.to_string();
-
-
 
         match token.tokenType {
            TOKEN_FALSE => self.nodePush(
@@ -661,21 +660,63 @@ impl<'a> Compiler<'a> {
 
     // *** Variable management **
 
-    fn namedVariable(&mut self) {
+    fn assignValueToVar(&mut self, varname: String) {
+        self.expression() ;
 
-        // This is the variable name we just encountered
-        let varname = self.parser.previous().name ;
+        let childVal = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::setVar {
+            name: varname,
+            datatype: DataType::None,
+            child: Box::new(childVal)
+        });
+    }
+
+    fn assignValueToArray(&mut self, varname: String,n: Node) {
+
+
+        // The value we're about to assign
+        self.expression() ;
+        let childVal = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::setArray {
+            name: varname,
+            index: Box::new(n),
+            child: Box::new(childVal)
+        });
+    }
+
+    fn namedArrayElement(&mut self, varname: String) {
+
+        // If we have this, then it means that we're referring to
+        // an array element
+
+        self.expression() ;
+        self.consume(TOKEN_RIGHT_BRACKET, "Expect ']' after array element expression");
+
+        // Tells us which element in the array we're looking for
+        let indexExpr = self.nodes.pop().unwrap() ;
+
         if self.t_match(TOKEN_EQUAL) {
-            self.expression() ;
+            // This is the value we're assigning
+            self.assignValueToArray(varname, indexExpr) ;
 
-            let childVal = self.nodes.pop().unwrap() ;
+        } else {
+            // If not, then it's being used as an expression
 
-            self.nodePush(Node::setVar {
+            let node = Node::namedArray {
                 name: varname,
-                datatype: DataType::None,
-                child: Box::new(childVal)
-            });
+                index: Box::new(indexExpr)
+            };
+            self.nodePush(node);
+        }
 
+    }
+
+    fn namedSingleVariable(&mut self, varname: String) {
+        // This means we're assigning a value
+        if self.t_match(TOKEN_EQUAL) {
+            self.assignValueToVar(varname) ;
         } else {
             // If not, then it's being used as an expression
             let node = Node::namedVar {
@@ -685,14 +726,27 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn namedVariable(&mut self) {
+
+        // This is the variable name we just encountered
+        let varname = self.parser.previous().name ;
+
+        if self.t_match(TOKEN_LEFT_BRACKET) {
+            self.namedArrayElement(varname) ;
+            return
+        }
+
+        self.namedSingleVariable(varname) ;
+    }
+
     fn variable(&mut self) {
         self.namedVariable() ;
     }
 
     fn varDeclaration(&mut self) {
 
-        // This is the location of the variable in the constants table we just allocated
         self.advance();
+
         let token = self.parser.previous() ;
         let varname = token.name ;
         let mut isAssigned = false ;
@@ -717,6 +771,7 @@ impl<'a> Compiler<'a> {
             assigned: isAssigned,
             varExpr: Box::new(declExpr)
         };
+
         self.nodePush(node);
 
     }
@@ -840,7 +895,10 @@ impl<'a> Compiler<'a> {
             } => {
 
                 let mut dataType = DataType::Nil ;
+                let mut elements:u16 = 0 ;
+
                 for n in values {
+                    elements+=1 ;
                     let tmpType = self.walkTree(n, level +2) ;
                     if dataType == DataType::Nil || dataType == tmpType {
                         dataType = tmpType ;
@@ -849,9 +907,8 @@ impl<'a> Compiler<'a> {
                     }
                 }
 
-                let heap_index =  0;
-                writeOp!(OP_CONSTANT, 0);
-                writeOperand!(heap_index);
+                writeOp!(OP_PUSH, 0);
+                writeOperand!(elements);
 
                 writeOp!(OP_NEWARRAY, 0) ;
                 DataType::Array
@@ -954,6 +1011,7 @@ impl<'a> Compiler<'a> {
                 assigned,
                 varExpr
             } => {
+
                 let datatype = self.walkTree(*varExpr, level + 2);
                 let loc = self.addVariable(name.clone(), datatype) ;
                 writeOp!(OP_SETVAR, 0);
@@ -962,6 +1020,52 @@ impl<'a> Compiler<'a> {
 
                 datatype
             },
+
+            Node::setArray {
+                name,
+                index,
+                child
+            } => {
+
+                // The stack should contain:
+                // -- index
+                // -- Value
+                // Then OP_SETAELEMENT first pops index off the stack to get to the element
+                // followed by popping the value we're assigning to the variable
+
+                let symbol = self.getVariable(name.clone()) ;
+
+                // The value we're assigning
+                let valueDataType = self.walkTree(*child, level + 2);
+
+                // The index of the array
+                let indexType = self.walkTree(*index, level + 2) ;
+
+
+                // Todo: Check that the variable type matches the value type
+
+                writeOp!(OP_SETAELEMENT, 0);
+                self.chunk.addComment(format!("Store array {}", name)) ;
+                writeOperand!(symbol.location as u16);
+
+                valueDataType
+
+            } ,
+
+            Node::namedArray {
+                name,
+                index
+            } => {
+                let symbol = self.getVariable(name.clone()) ;
+                // The index of the array
+                let indexType = self.walkTree(*index, level + 2) ;
+
+                writeOp!(OP_GETAELEMENT, 0);
+                self.chunk.addComment(format!("Load array variable {}", name)) ;
+                writeOperand!(symbol.location as u16);
+
+                symbol.datatype
+            } ,
 
             Node::setVar {
                 name,

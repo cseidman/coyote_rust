@@ -1,6 +1,6 @@
 use crate::chunk::{Chunk, OpCode};
 use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRET_RUNTIME_ERROR};
-use crate::value::{printValue, Value} ;
+use crate::value::{printValue, Value, Array};
 use crate::debug::* ;
 use crate::compiler::{Compiler};
 use crate::common::{boolAsf64};
@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::io::{stderr, Write,self,stdin,stdout} ;
 use std::ops::Deref;
+use std::cell::RefCell;
 
 pub struct Frame<'a> {
     slots: &'a [Value],
@@ -37,12 +38,12 @@ impl<'a> VM<'a> {
         let mut vm = VM {
             chunk: Chunk::new(),
             ip: 0,
-            stack: Vec::with_capacity(16000000),
-            stackTop: 64000, // Start at an arbitrary position
+            stack: Vec::with_capacity(1024000),
+            stackTop: 8092, // Start at an arbitrary position
             frames: Vec::new(),
         } ;
 
-        for _ in 0 .. 64000 {
+        for _ in 0 .. 8092 {
             vm.stack.push(Value::empty);
         }
         vm
@@ -92,7 +93,7 @@ impl<'a> VM<'a> {
     pub fn debug(&self) {
 
         print!("          ");
-        for slot in 64000..self.stackTop {
+        for slot in 8092..self.stackTop {
 
             let val = self.stack[slot].clone() ;
             if val.isEmpty() {
@@ -198,6 +199,10 @@ impl<'a> VM<'a> {
                 OP_RETURN => {
                     //self.pop();
                     return INTERPRET_OK
+                },
+                OP_PUSH => {
+                    let value = READ_OPERAND!() as i64;
+                    self.push(Value::integer(value)) ;
                 },
                 OP_CONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
@@ -326,9 +331,40 @@ impl<'a> VM<'a> {
                     self.pop();
                 },
 
+                OP_GETAELEMENT => {
+                    let index = self.pop().get_integer() as usize;
+
+                    let slot = READ_OPERAND!() as usize;
+                    let array = self.stack[slot].clone().get_array() ;
+
+                    self.push(array.get(index));
+
+                },
+
+                OP_SETAELEMENT => {
+
+                    let slot = READ_OPERAND!() as usize;
+                    let mut array = self.stack[slot].clone() ;
+
+                    let index = self.pop().get_integer() as usize;
+                    let value = self.pop() ;
+
+                    let ar = array.get_array_mut();
+                    ar.put(index, value);
+                    self.stack[slot] = array ;
+                },
+
                 OP_NEWARRAY => {
+
                     let arity = self.pop().get_integer() as usize;
-                    let aValue:Vec<Value> = Vec::with_capacity(arity) ;
+                    let mut array = Array::new(arity) ;
+
+                    for _ in 0..arity {
+                        array.insert(self.pop().clone()) ;
+                    }
+
+                    self.push(Value::array(array));
+
                 }
                 _ => {return INTERPRET_OK}
             }

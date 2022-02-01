@@ -13,6 +13,7 @@ use std::collections::{HashMap};
 use std::ops::{Add, Sub};
 use blake2::{Blake2b, Digest};
 use blake2::digest::generic_array::{GenericArray};
+use std::cell::RefCell;
 
 pub type hashkey = GenericArray<u8, u64> ;
 
@@ -21,15 +22,11 @@ pub fn printValue(value: Value) {
 }
 
 #[derive(Debug,Clone)]
-pub struct Array {
-    avalue: Vec<Value>
-}
-
-#[derive(Debug,Clone)]
 pub struct Dict {
     hvalue: HashMap<Value,Value>
 }
 
+// This is used for constants
 pub struct ValueArray{
     pub values: Vec<Value>
 }
@@ -40,6 +37,56 @@ impl ValueArray {
             values: Vec::new()
         }
     }
+}
+
+// Array type
+#[derive(Debug,Clone, PartialOrd, PartialEq)]
+pub struct Array {
+    size: usize,
+    values: Vec<Value>
+}
+
+impl Array {
+
+    pub fn new(size: usize) -> Self {
+        Self {
+            size,
+            values: Vec::with_capacity(size)
+        }
+    }
+
+    pub fn check_size(&self, index: usize) {
+        if index >= self.size {
+            panic!("Can't address index {} in an array of size {}", index, self.size) ;
+        }
+    }
+
+    pub fn get_size(&self) -> usize {
+        self.size
+    }
+
+    pub fn put(&mut self, index: usize, value: Value) {
+        self.check_size(index) ;
+        self.values[index] = value ;
+    }
+
+    pub fn append(&mut self, value: Value) {
+        self.values.push(value) ;
+    }
+
+    pub fn insert(&mut self, value: Value) {
+        self.values.insert(0,value) ;
+    }
+
+    pub fn put_array(&mut self, value: Value) {
+
+    }
+
+    pub fn get(&self, index: usize) -> Value {
+        self.check_size(index) ;
+        self.values[index].clone()
+    }
+
 }
 
 pub fn writeValueArray(array: &mut ValueArray, value: Value) {
@@ -53,7 +100,7 @@ pub enum Value {
     logical(bool),
     string(Rc<String>),
     dict(u16),
-    array(u16),
+    array(Array),
     hash(u16),
     nil,
     empty
@@ -71,7 +118,23 @@ impl Display for Value {
                 },
             Value::nil => write!(f, "nil"),
             //Value::empty => write!(f, "(empty)"),
-            //Value::array(_) => write!(f, "array"),
+            Value::array(x) => {
+
+                let mut counter = 0 ;
+                write!(f, "[").unwrap();
+                for e in &x.values {
+                    if counter > 0 {
+                        write!(f, ", ").unwrap();
+                    }
+                    counter += 1 ;
+                    write!(f, "{}", e).unwrap();
+                    if counter >= 10 {
+                        write!(f, ", ..({} more elements)", x.size-10).unwrap();
+                        break ;
+                    }
+                }
+                write!(f, "]")
+            },
             //Value::dict(_) => write!(f, "dict"),
             Value::integer(x) => write!(f,"{}",x),
             Value::float(x) => write!(f,"{}",x),
@@ -96,6 +159,20 @@ impl Value {
             return true
         }
         false
+    }
+
+    pub fn get_array(self) -> Array {
+        if let Value::array(x) = self {
+            return x;
+        }
+        panic!("Value {:?} is not an array", self) ;
+    }
+
+    pub fn get_array_mut(&mut self) -> &mut Array {
+        if let Value::array(x) = self {
+            return x;
+        }
+        panic!("Value {:?} is not an array", self) ;
     }
 
     pub fn get_integer(self) -> i64 {

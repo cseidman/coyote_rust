@@ -126,6 +126,15 @@ pub enum Node {
     namedVar {
         name: String
     },
+    setArray {
+        name: String,
+        index: Box<Node>,
+        child: Box<Node>
+    },
+    namedArray {
+        name: String,
+        index: Box<Node>
+    },
     Return {
         returnVal: Box<Node>
     },
