@@ -1,6 +1,6 @@
-let x = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120]
-print x[2]
-x[1] = 200
-print x[1]
-print x
+let x = @["one":1, "two":2, "three":3]
+x@["two"] = 20
+print x@["two"]
+
+
 

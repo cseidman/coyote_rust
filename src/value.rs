@@ -21,11 +21,6 @@ pub fn printValue(value: Value) {
     print!("{}",value ) ;
 }
 
-#[derive(Debug,Clone)]
-pub struct Dict {
-    hvalue: HashMap<Value,Value>
-}
-
 // This is used for constants
 pub struct ValueArray{
     pub values: Vec<Value>
@@ -36,6 +31,95 @@ impl ValueArray {
         ValueArray{
             values: Vec::new()
         }
+    }
+}
+#[derive(Debug,Clone, PartialOrd, PartialEq, Eq, Hash)]
+pub enum HKey {
+    HString(String),
+    HInteger(i64)
+}
+
+impl HKey {
+    pub fn new(value: Value) -> Self {
+        match value {
+            Value::string(x) => {
+                HKey::HString(x)
+            },
+            Value::integer(x) => {
+                HKey::HInteger(x)
+            },
+            _ => {
+                panic!("Hash key must be a string or an integer!") ;
+            }
+        }
+
+    }
+}
+
+impl Display for HKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            HKey::HString(s) => {
+                write!(f, "{}", s)
+            },
+            HKey::HInteger(i) => {
+                write!(f, "{}", i)
+            },
+        }
+    }
+}
+// Hash type
+#[derive(Debug,Clone)]
+pub struct Dict {
+    hashVal: HashMap<HKey, Value>
+}
+
+impl Dict {
+    pub fn new() -> Self {
+        Self {
+            hashVal: HashMap::new()
+        }
+    }
+
+    pub fn insert(&mut self, key: HKey, value: Value) {
+        self.hashVal.insert(key, value) ;
+    }
+
+    pub fn get(&self, key: HKey) -> Option<&Value> {
+        self.hashVal.get(&key)
+    }
+
+}
+
+impl PartialEq for Dict {
+    fn eq(&self, other: &Self) -> bool {
+        false
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        false
+    }
+}
+
+impl PartialOrd for Dict {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(Ordering::Equal)
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+        false
+    }
+
+    fn le(&self, other: &Self) -> bool {
+        false
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        false
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        false
     }
 }
 
@@ -93,15 +177,14 @@ pub fn writeValueArray(array: &mut ValueArray, value: Value) {
     array.values.push(value) ;
 }
 
-#[derive(Debug,Clone, PartialOrd)]
+#[derive(Debug, Clone, PartialOrd)]
 pub enum Value {
     integer(i64),
     float(f64),
     logical(bool),
-    string(Rc<String>),
-    dict(u16),
+    string(String),
     array(Array),
-    hash(u16),
+    hash(Dict),
     nil,
     empty
 }
@@ -135,7 +218,18 @@ impl Display for Value {
                 }
                 write!(f, "]")
             },
-            //Value::dict(_) => write!(f, "dict"),
+            Value::hash(x) => {
+                let mut counter = 0 ;
+                write!(f, "@[").unwrap();
+                for k in x.hashVal.keys() {
+                    if counter > 0 {
+                        write!(f, ", ").unwrap();
+                    }
+                    write!(f,"{}={}" ,k,x.hashVal[k]).unwrap();
+                    counter+=1 ;
+                }
+                write!(f, "]")
+            },
             Value::integer(x) => write!(f,"{}",x),
             Value::float(x) => write!(f,"{}",x),
             Value::string(x) => write!(f,"{}",x),
@@ -173,6 +267,20 @@ impl Value {
             return x;
         }
         panic!("Value {:?} is not an array", self) ;
+    }
+
+    pub fn get_dict(self) -> Dict {
+        if let Value::hash(x) = self {
+            return x;
+        }
+        panic!("Value {:?} is not a hash", self) ;
+    }
+
+    pub fn get_dict_mut(&mut self) -> &mut Dict {
+        if let Value::hash(x) = self {
+            return x;
+        }
+        panic!("Value {:?} is not a hash", self) ;
     }
 
     pub fn get_integer(self) -> i64 {
@@ -231,12 +339,34 @@ impl PartialEq for Value {
                     panic!("Mismatch when trying to equate floats");
                 }
             },
+            Value::hash(x) => {
+                false
+            },
+            Value::array(x) => {
+                if let Value::array(y) = other {
+
+                    if y.size != x.size {
+                        return false ;
+                    }
+
+                    for i in 0..x.size {
+                        if x.values[i] != y.values[i] {
+                            return false;
+                        }
+                    }
+                    return true
+
+                }
+                panic!("Mismatch when trying to equate arrays");
+            }
             _=>panic!("Unable to equate type {:?}", self )
         }
 
     }
 
 }
+
+impl Eq for Value {}
 
 impl Sub for Value {
 

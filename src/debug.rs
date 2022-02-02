@@ -110,6 +110,7 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_FALSE
         | OpCode::OP_SPRINT
         | OpCode::OP_NEWARRAY
+        | OpCode::OP_NEWDICT
         | OpCode::OP_PRINT => simpleInstruction(display!(instruction), offset),
         OpCode::OP_LOOP
         | OpCode::OP_JUMP => jumpBackInstruction(display!(instruction),  chunk, offset),
@@ -119,6 +120,8 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         OpCode::OP_LOADVAR
         | OpCode::OP_GETAELEMENT
         | OpCode::OP_SETAELEMENT
+        | OpCode::OP_GETHELEMENT
+        | OpCode::OP_SETHELEMENT
         | OpCode::OP_SETVAR => varInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_SCONSTANT
         | OpCode::OP_CONSTANT => constantInstruction(display!(instruction), chunk, offset),

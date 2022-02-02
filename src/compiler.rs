@@ -49,6 +49,7 @@ enum ExpFunctions {
     VARIABLE,
     BLOCKING,
     ARRAY_BUILD,
+    HASH_BUILD,
     AND,
     OR
 }
@@ -241,12 +242,47 @@ impl<'a> Compiler<'a> {
         while ! self.t_match(TOKEN_RIGHT_BRACKET) {
             arity += 1 ;
             self.expression() ;
-            self.t_match(TOKEN_COMMA) ;
+
+            self.t_match(TOKEN_COMMA) ; // Consume the comma if there is one
+
             let node = self.nodes.pop().unwrap();
             values.push(node) ;
         }
         self.nodePush(Array {
             arity,
+            values
+        }) ;
+    }
+
+    pub fn hashBuilder(&mut self) {
+        // We already consumed the '@['
+
+        let mut keys: Vec<Node> = Vec::new() ;
+        let mut values: Vec<Node> = Vec::new() ;
+
+        let mut arity= 0 ;
+
+        while ! self.t_match(TOKEN_RIGHT_BRACKET) {
+
+            arity+=1 ;
+
+            self.expression() ; // The key
+            let key = self.nodes.pop().unwrap();
+            keys.insert(0,key) ;
+
+            self.consume(TOKEN_COLON,"Expect ':' between the key and value") ;
+
+            self.expression() ; // The value
+            let value = self.nodes.pop().unwrap();
+            values.insert(0, value) ;
+
+            self.t_match(TOKEN_COMMA) ; // Get the comma if there is one
+
+        }
+
+        self.nodePush(Dict {
+            arity,
+            keys,
             values
         }) ;
     }
@@ -318,7 +354,7 @@ impl<'a> Compiler<'a> {
             Node::Value {
                 line: token.line,
                 label: label.clone(),
-                value: Value::string(Rc::new(label)),
+                value: Value::string(label),
                 dataType: DataType::String
         });
     }
@@ -417,6 +453,7 @@ impl<'a> Compiler<'a> {
         match tokenType {
             TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_NONE),
             TOKEN_LEFT_BRACKET  => Rule::new(ARRAY_BUILD, NONE, PREC_NONE),
+            TOKEN_AT_BRACKET    => Rule::new(HASH_BUILD, NONE, PREC_NONE),
             TOKEN_MINUS
             | TOKEN_PLUS        => Rule::new(UNARY, BINARY , PREC_TERM),
             TOKEN_SLASH
@@ -454,6 +491,7 @@ impl<'a> Compiler<'a> {
             AND => self.and_(),
             OR => self.or_(),
             ARRAY_BUILD => self.arrayBuilder(),
+            HASH_BUILD => self.hashBuilder(),
             _ => {
                 self.error("Binary expression {func} uknown") ;
             }
@@ -673,8 +711,6 @@ impl<'a> Compiler<'a> {
     }
 
     fn assignValueToArray(&mut self, varname: String,n: Node) {
-
-
         // The value we're about to assign
         self.expression() ;
         let childVal = self.nodes.pop().unwrap() ;
@@ -684,6 +720,45 @@ impl<'a> Compiler<'a> {
             index: Box::new(n),
             child: Box::new(childVal)
         });
+    }
+
+    fn assignValueToHash(&mut self, varname: String,n: Node) {
+        // The value we're about to assign
+        self.expression() ;
+        let childVal = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::setHash {
+            name: varname,
+            key: Box::new(n),
+            child: Box::new(childVal)
+        });
+    }
+
+    fn namedHashKey(&mut self, varname: String) {
+
+        // If we have this, then it means that we're referring to
+        // a hash key
+
+        self.expression() ; // Key expression
+        self.consume(TOKEN_RIGHT_BRACKET, "Expect ']' after hash element expression");
+
+        // Tells us which element in the hash we're looking for
+        let keyExpr = self.nodes.pop().unwrap() ;
+
+        if self.t_match(TOKEN_EQUAL) {
+            // This is the value we're assigning
+            self.assignValueToHash(varname, keyExpr) ;
+
+        } else {
+            // If not, then it's being used as an expression
+
+            let node = Node::namedHash {
+                name: varname,
+                key: Box::new(keyExpr),
+            };
+            self.nodePush(node);
+        }
+
     }
 
     fn namedArrayElement(&mut self, varname: String) {
@@ -736,6 +811,11 @@ impl<'a> Compiler<'a> {
             return
         }
 
+        if self.t_match(TOKEN_AT_BRACKET) {
+            self.namedHashKey(varname) ;
+            return
+        }
+
         self.namedSingleVariable(varname) ;
     }
 
@@ -764,8 +844,9 @@ impl<'a> Compiler<'a> {
                     dataType: DataType::Nil
                 })
         }
-
+        // This is the expression that gets assigned to the variable
         let declExpr = self.nodes.pop().unwrap() ;
+
         let node = Node::VarDecl {
             name: varname,
             assigned: isAssigned,
@@ -812,7 +893,7 @@ impl<'a> Compiler<'a> {
             children: tree
         };
         self.nodes = vec![startNode];
-        self.walkTree(self.nodes[0].clone(), 1) ;
+        self.walkTree(self.nodes[0].clone()) ;
 
         //if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
@@ -849,7 +930,7 @@ impl<'a> Compiler<'a> {
         writeu16Chunk(self.chunk, continueTo as u16, 0);
     }
 
-    pub fn walkTree(&mut self, node: Node, level: usize) -> DataType {
+    pub fn walkTree(&mut self, node: Node) -> DataType {
 
         macro_rules! writeOp {
             ($byte:expr, $line:expr) => {
@@ -866,7 +947,7 @@ impl<'a> Compiler<'a> {
         match node {
             Node::Root { children: nodes } => {
                 for n in nodes {
-                    self.walkTree(n, level);
+                    self.walkTree(n);
                 }
                 DataType::None
             }
@@ -889,6 +970,74 @@ impl<'a> Compiler<'a> {
                 }
                 dataType
             },
+
+            Node::Dict {
+                arity,
+                keys,
+                values
+            } => {
+                
+                let mut elements= 0 ;
+                for k in keys {
+                    let v = values[elements].clone();
+
+                    let keyType = self.walkTree(k) ;
+                    let valType = self.walkTree(v) ;
+
+                    elements+=1 ;
+                }
+
+                writeOp!(OP_PUSH, 0);
+                writeOperand!(elements as u16);
+
+                writeOp!(OP_NEWDICT, 0) ;
+
+                DataType::Dict
+            },
+
+            Node::namedHash {
+                name,
+                key
+            } => {
+                let symbol = self.getVariable(name.clone()) ;
+                // The index of the array
+                let keyType = self.walkTree(*key, ) ;
+
+                writeOp!(OP_GETHELEMENT, 0);
+                self.chunk.addComment(format!("Load hash variable {}", name)) ;
+                writeOperand!(symbol.location as u16);
+
+                symbol.datatype
+            },
+
+            Node::setHash {
+                name,
+                key,
+                child
+            } => {
+                // The stack should contain:
+                // -- key
+                // -- Value
+                // Then OP_SETHELEMENT first pops index off the stack to get to the element
+                // followed by popping the value we're assigning to the variable
+
+                let symbol = self.getVariable(name.clone()) ;
+
+                // The value we're assigning
+                let valueDataType = self.walkTree(*child);
+
+                // The hash key
+                let keyType = self.walkTree(*key) ;
+
+                // Todo: Check that the variable type matches the value type
+
+                writeOp!(OP_SETHELEMENT, 0);
+                self.chunk.addComment(format!("Store hash {}", name)) ;
+                writeOperand!(symbol.location as u16);
+
+                valueDataType
+            },
+
             Node::Array {
                 arity,
                 values
@@ -899,7 +1048,7 @@ impl<'a> Compiler<'a> {
 
                 for n in values {
                     elements+=1 ;
-                    let tmpType = self.walkTree(n, level +2) ;
+                    let tmpType = self.walkTree(n) ;
                     if dataType == DataType::Nil || dataType == tmpType {
                         dataType = tmpType ;
                     } else {
@@ -920,8 +1069,8 @@ impl<'a> Compiler<'a> {
                 lhs,
                 rhs
             } => {
-                let mut l_type = self.walkTree(*lhs, level + 2);
-                let r_type = self.walkTree(*rhs, level + 2);
+                let mut l_type = self.walkTree(*lhs);
+                let r_type = self.walkTree(*rhs );
 
                 if l_type != r_type {
                     match (l_type, r_type) {
@@ -980,7 +1129,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::UnaryExpr { line, op, child } => {
-                let dataType = self.walkTree(*child, level + 2);
+                let dataType = self.walkTree(*child, );
 
                 match op {
                     Operator::Minus => {
@@ -1012,7 +1161,7 @@ impl<'a> Compiler<'a> {
                 varExpr
             } => {
 
-                let datatype = self.walkTree(*varExpr, level + 2);
+                let datatype = self.walkTree(*varExpr, );
                 let loc = self.addVariable(name.clone(), datatype) ;
                 writeOp!(OP_SETVAR, 0);
                 self.chunk.addComment(format!("Declare and store variable {}", name)) ;
@@ -1036,11 +1185,10 @@ impl<'a> Compiler<'a> {
                 let symbol = self.getVariable(name.clone()) ;
 
                 // The value we're assigning
-                let valueDataType = self.walkTree(*child, level + 2);
+                let valueDataType = self.walkTree(*child, );
 
                 // The index of the array
-                let indexType = self.walkTree(*index, level + 2) ;
-
+                let indexType = self.walkTree(*index, ) ;
 
                 // Todo: Check that the variable type matches the value type
 
@@ -1058,7 +1206,7 @@ impl<'a> Compiler<'a> {
             } => {
                 let symbol = self.getVariable(name.clone()) ;
                 // The index of the array
-                let indexType = self.walkTree(*index, level + 2) ;
+                let indexType = self.walkTree(*index, ) ;
 
                 writeOp!(OP_GETAELEMENT, 0);
                 self.chunk.addComment(format!("Load array variable {}", name)) ;
@@ -1073,7 +1221,7 @@ impl<'a> Compiler<'a> {
                 child
             } => {
                 let symbol = self.getVariable(name.clone()) ;
-                let valueDataType = self.walkTree(*child, level + 2);
+                let valueDataType = self.walkTree(*child, );
 
                 let mut varType = datatype ;
                 if varType == DataType::None {
@@ -1118,7 +1266,7 @@ impl<'a> Compiler<'a> {
                 writeOperand!(9999_u16) ;
                 writeOp!(OP_POP,0) ;
 
-                if self.walkTree(*expr, level + 2 ) != DataType::Bool {
+                if self.walkTree(*expr,  ) != DataType::Bool {
                     self.errorAtAst("Condition on the right of AND must evaluate to True or False", 0);
                 }
 
@@ -1141,7 +1289,7 @@ impl<'a> Compiler<'a> {
                 backPatch(self.chunk, loc) ;
                 writeOp!(OP_POP,0) ;
 
-                if self.walkTree(*expr, level + 2 ) != DataType::Bool {
+                if self.walkTree(*expr,  ) != DataType::Bool {
                     self.errorAtAst("Condition on the right of OR must evaluate to True or False", 0);
                 }
 
@@ -1152,7 +1300,7 @@ impl<'a> Compiler<'a> {
             Node::Print {
                 printExpr
             } => {
-                let datatype = self.walkTree(*printExpr, level + 2);
+                let datatype = self.walkTree(*printExpr, );
                 match datatype {
                     DataType::String => writeOp!(OP_SPRINT,0),
                     _ => writeOp!(OP_PRINT,0)
@@ -1163,7 +1311,7 @@ impl<'a> Compiler<'a> {
             Node::Return {
                 returnVal
             } => {
-                let datatype = self.walkTree(*returnVal, level + 2);
+                let datatype = self.walkTree(*returnVal, );
                 writeOp!(OP_RETURN,0);
                 datatype
             },
@@ -1189,7 +1337,7 @@ impl<'a> Compiler<'a> {
 
                 // Collect all the logical condition expressions
                 for e in condition {
-                    let dataType = self.walkTree(e, level + 2 ) ;
+                    let dataType = self.walkTree(e,  ) ;
                     if dataType != DataType::Bool {
                         self.errorAtAst("IF condition must evaluate to True or False", 0) ;
                     }
@@ -1212,7 +1360,7 @@ impl<'a> Compiler<'a> {
                         self.generateContinueStatement() ;
                     }
 
-                    self.walkTree(n, level +2);
+                    self.walkTree(n);
 
                 }
 
@@ -1239,7 +1387,7 @@ impl<'a> Compiler<'a> {
                            self.generateContinueStatement() ;
                         }
 
-                        self.walkTree(n, level + 2);
+                        self.walkTree(n, );
                     }
 
                 } else {
@@ -1268,7 +1416,7 @@ impl<'a> Compiler<'a> {
 
                 // Collect all the logical condition expressions
                 for e in condition {
-                    let dataType = self.walkTree(e, level + 2 ) ;
+                    let dataType = self.walkTree(e,  ) ;
                     if dataType != DataType::Bool {
                         self.errorAtAst("WHILE condition must evaluate to True or False", 0) ;
                     }
@@ -1297,7 +1445,7 @@ impl<'a> Compiler<'a> {
                         writeOperand!(continueTo as u16) ;
                     }
 
-                    self.walkTree(n, level +2);
+                    self.walkTree(n);
 
                 }
 

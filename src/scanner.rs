@@ -9,7 +9,8 @@ pub enum TokenType {
     TOKEN_LEFT_BRACKET, TOKEN_RIGHT_BRACKET,
     TOKEN_COMMA, TOKEN_DOT, TOKEN_MINUS, TOKEN_PLUS,
     TOKEN_SEMICOLON, TOKEN_SLASH, TOKEN_STAR,
-    TOKEN_COLON, TOKEN_DOUBLE_COLON,
+    TOKEN_COLON, TOKEN_DOUBLE_COLON, TOKEN_AT,
+    TOKEN_AT_BRACKET,
 
     // One or two character tokens.
     TOKEN_BANG, TOKEN_BANG_EQUAL,
@@ -107,6 +108,11 @@ impl Scanner {
                 self.makeToken(TOKEN_CR)
             },
             '\0'=>  self.makeToken(TOKEN_EOF),
+            '@' =>  if self.tmatch('[') {
+                        self.makeToken(TOKEN_AT_BRACKET)
+                    } else {
+                        self.makeToken(TOKEN_AT)
+                    },
             '(' =>  self.makeToken(TOKEN_LEFT_PAREN),
             ')' =>  self.makeToken(TOKEN_RIGHT_PAREN),
             '{' =>  self.makeToken(TOKEN_LEFT_BRACE),

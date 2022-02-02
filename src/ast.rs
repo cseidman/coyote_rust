@@ -9,6 +9,7 @@ use std::str::{FromStr};
 
 use crate::errors::{InterpretResult, ReportError};
 use InterpretResult::* ;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialOrd, PartialEq)]
 pub enum JumpType {
@@ -40,6 +41,7 @@ pub enum DataType {
     String,
     Bool,
     Array,
+    Dict,
     Nil,
     None
 }
@@ -113,6 +115,12 @@ pub enum Node {
         values: Vec<Node>
     },
 
+    Dict {
+        arity: usize,
+        keys: Vec<Node>,
+        values: Vec<Node>
+    },
+
     VarDecl {
         name: String ,
         assigned: bool,
@@ -131,10 +139,23 @@ pub enum Node {
         index: Box<Node>,
         child: Box<Node>
     },
+
+    setHash {
+        name: String,
+        key: Box<Node>,
+        child: Box<Node>
+    },
+
     namedArray {
         name: String,
         index: Box<Node>
     },
+
+    namedHash {
+        name: String,
+        key: Box<Node>
+    },
+
     Return {
         returnVal: Box<Node>
     },
@@ -172,3 +193,17 @@ pub enum Node {
 
 }
 
+impl Node {
+    pub fn getDataType(self) -> DataType {
+        match self {
+            Node::Value {
+                line,
+                label,
+                value,
+                dataType } => dataType,
+            Node::namedArray {..} => DataType::Array,
+
+            _ => DataType::Nil
+        }
+    }
+}

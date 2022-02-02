@@ -58,9 +58,15 @@ pub enum OpCode {
     OP_INEQ,
     OP_FNEQ,
     OP_SNEQ,
+
     OP_NEWARRAY,
     OP_GETAELEMENT,
     OP_SETAELEMENT,
+
+    OP_NEWDICT,
+    OP_GETHELEMENT,
+    OP_SETHELEMENT,
+
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -118,9 +124,14 @@ impl From<u8> for OpCode {
             49  => OP_INEQ,
             50  => OP_FNEQ,
             51  => OP_SNEQ,
+
             52  => OP_NEWARRAY,
             53 => OP_GETAELEMENT,
             54 => OP_SETAELEMENT,
+
+            55 => OP_NEWDICT,
+            56 => OP_GETHELEMENT,
+            57 => OP_SETHELEMENT,
 
             _   => OP_UNKNOWN,
         }

@@ -1,6 +1,6 @@
 use crate::chunk::{Chunk, OpCode};
 use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRET_RUNTIME_ERROR};
-use crate::value::{printValue, Value, Array};
+use crate::value::{printValue, Value, Array, Dict, HKey};
 use crate::debug::* ;
 use crate::compiler::{Compiler};
 use crate::common::{boolAsf64};
@@ -341,6 +341,20 @@ impl<'a> VM<'a> {
 
                 },
 
+                OP_SETHELEMENT => {
+
+                    let slot = READ_OPERAND!() as usize;
+                    let mut hash = self.stack[slot].clone() ;
+
+                    let key = HKey::new(self.pop());
+                    let value = self.pop() ;
+
+                    let h = hash.get_dict_mut();
+
+                    h.insert(key, value);
+                    self.stack[slot] = hash ;
+                },
+
                 OP_SETAELEMENT => {
 
                     let slot = READ_OPERAND!() as usize;
@@ -350,6 +364,7 @@ impl<'a> VM<'a> {
                     let value = self.pop() ;
 
                     let ar = array.get_array_mut();
+
                     ar.put(index, value);
                     self.stack[slot] = array ;
                 },
@@ -366,6 +381,38 @@ impl<'a> VM<'a> {
                     self.push(Value::array(array));
 
                 }
+
+                OP_GETHELEMENT => {
+                    let key = self.pop().clone();
+
+                    let k = HKey::new(key) ;
+
+                    let slot = READ_OPERAND!() as usize;
+                    let dict = self.stack[slot].clone().get_dict() ;
+                    let value = dict.get(k).unwrap_or(&Value::nil).clone();
+                    self.push(value);
+
+                },
+
+                OP_NEWDICT => {
+                    let mut dict = Value::hash(Dict::new());
+                    let h = dict.get_dict_mut();
+
+                    let arity = self.pop().get_integer() as usize;
+
+                    for _ in 0..arity {
+
+                        let val = self.pop().clone();
+                        let key = self.pop().clone();
+
+                        let k = HKey::new(key) ;
+
+                        h.insert(k,val) ;
+                    }
+
+                    self.push(dict) ;
+                }
+
                 _ => {return INTERPRET_OK}
             }
 
