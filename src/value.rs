@@ -172,9 +172,44 @@ impl Array {
     }
 
 }
+#[derive(Debug,Clone, PartialOrd)]
+pub enum Visibilty {
+    private,
+    public
+}
+
+impl PartialEq for Visibilty {
+    fn eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+#[derive(Debug,Clone,PartialOrd)]
+pub struct Property {
+    pub name: String,
+    pub visibility: Visibilty,
+    pub propertyType: DataType
+}
+
+impl PartialEq for Property {
+    fn eq(&self, other: &Self) -> bool {
+        false
+    }
+}
 
 pub fn writeValueArray(array: &mut ValueArray, value: Value) {
     array.values.push(value) ;
+}
+
+#[derive(Debug,Clone, PartialOrd)]
+pub struct Class {
+    pub properties: Vec<Property>
+}
+
+impl PartialEq for Class {
+    fn eq(&self, other: &Self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, PartialOrd)]
@@ -184,6 +219,7 @@ pub enum Value {
     logical(bool),
     string(String),
     array(Array),
+    class(Class),
     hash(Dict),
     nil,
     empty
@@ -340,6 +376,9 @@ impl PartialEq for Value {
                 }
             },
             Value::hash(x) => {
+                false
+            },
+            Value::class(x) => {
                 false
             },
             Value::array(x) => {

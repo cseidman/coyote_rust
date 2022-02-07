@@ -60,8 +60,18 @@ pub enum OpCode {
     OP_SNEQ,
 
     OP_NEWARRAY,
-    OP_GETAELEMENT,
-    OP_SETAELEMENT,
+
+    OP_IGETAELEMENT,
+    OP_ISETAELEMENT,
+
+    OP_FGETAELEMENT,
+    OP_FSETAELEMENT,
+
+    OP_SGETAELEMENT,
+    OP_SSETAELEMENT,
+
+    OP_BGETAELEMENT,
+    OP_BSETAELEMENT,
 
     OP_NEWDICT,
     OP_GETHELEMENT,
@@ -125,13 +135,23 @@ impl From<u8> for OpCode {
             50  => OP_FNEQ,
             51  => OP_SNEQ,
 
-            52  => OP_NEWARRAY,
-            53 => OP_GETAELEMENT,
-            54 => OP_SETAELEMENT,
+            52 => OP_NEWARRAY,
 
-            55 => OP_NEWDICT,
-            56 => OP_GETHELEMENT,
-            57 => OP_SETHELEMENT,
+            53 => OP_IGETAELEMENT,
+            54 => OP_ISETAELEMENT,
+
+            55 => OP_FGETAELEMENT,
+            56 => OP_FSETAELEMENT,
+
+            57 => OP_SGETAELEMENT,
+            58 => OP_SSETAELEMENT,
+
+            59 => OP_BGETAELEMENT,
+            60 => OP_BSETAELEMENT,
+
+            61 => OP_NEWDICT,
+            62 => OP_GETHELEMENT,
+            63 => OP_SETHELEMENT,
 
             _   => OP_UNKNOWN,
         }
@@ -230,6 +250,9 @@ impl Chunk {
 
     pub fn getComment(&self, location: usize) -> String {
         let val = self.comments.get(&location) ;
+        if val.is_none() {
+            return ":".to_string() ;
+        }
         val.unwrap().clone()
     }
 

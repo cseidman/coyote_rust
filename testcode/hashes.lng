@@ -1,0 +1,6 @@
+let t = ["one", "two", "three"]
+
+let x = @["one":1, "two":2, "three":"xxx"]
+x@["four"] = 4
+print x@["four"]
+

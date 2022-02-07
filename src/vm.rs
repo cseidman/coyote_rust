@@ -331,7 +331,10 @@ impl<'a> VM<'a> {
                     self.pop();
                 },
 
-                OP_GETAELEMENT => {
+                OP_IGETAELEMENT
+                | OP_SGETAELEMENT
+                | OP_BGETAELEMENT
+                | OP_FGETAELEMENT => {
                     let index = self.pop().get_integer() as usize;
 
                     let slot = READ_OPERAND!() as usize;
@@ -355,7 +358,10 @@ impl<'a> VM<'a> {
                     self.stack[slot] = hash ;
                 },
 
-                OP_SETAELEMENT => {
+                OP_ISETAELEMENT
+                | OP_SSETAELEMENT
+                | OP_BSETAELEMENT
+                | OP_FSETAELEMENT => {
 
                     let slot = READ_OPERAND!() as usize;
                     let mut array = self.stack[slot].clone() ;

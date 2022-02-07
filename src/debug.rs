@@ -118,8 +118,14 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_JUMP_IF_FALSE_NOPOP => jumpFowardInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_PUSH=> valueInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_LOADVAR
-        | OpCode::OP_GETAELEMENT
-        | OpCode::OP_SETAELEMENT
+        | OpCode::OP_IGETAELEMENT
+        | OpCode::OP_ISETAELEMENT
+        | OpCode::OP_FGETAELEMENT
+        | OpCode::OP_FSETAELEMENT
+        | OpCode::OP_SGETAELEMENT
+        | OpCode::OP_SSETAELEMENT
+        | OpCode::OP_BGETAELEMENT
+        | OpCode::OP_BSETAELEMENT
         | OpCode::OP_GETHELEMENT
         | OpCode::OP_SETHELEMENT
         | OpCode::OP_SETVAR => varInstruction(display!(instruction),  chunk, offset),

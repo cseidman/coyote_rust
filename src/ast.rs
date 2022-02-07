@@ -40,11 +40,16 @@ pub enum DataType {
     Float,
     String,
     Bool,
-    Array,
+    IArray,
+    FArray,
+    SArray,
+    BArray,
     Dict,
+    Object,
     Nil,
     None
 }
+
 impl DataType {
     pub fn emit(&self) -> String {
         match self {
@@ -112,6 +117,8 @@ pub enum Node {
 
     Array {
         arity: usize,
+        valueType: DataType,
+        elementType: DataType,
         values: Vec<Node>
     },
 
@@ -149,6 +156,11 @@ pub enum Node {
     namedArray {
         name: String,
         index: Box<Node>
+    },
+
+    class {
+        propertyCount: usize,
+        properties: Vec<Node>
     },
 
     namedHash {
@@ -201,8 +213,6 @@ impl Node {
                 label,
                 value,
                 dataType } => dataType,
-            Node::namedArray {..} => DataType::Array,
-
             _ => DataType::Nil
         }
     }

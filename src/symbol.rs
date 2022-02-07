@@ -2,13 +2,28 @@ use crate::value::Value ;
 use crate::ast::DataType;
 use std::collections::HashMap;
 
+// Symbol Types
+#[derive(Clone)]
+pub enum ObjectType {
+    variable,
+    datatype
+}
+
+// Symbol entry for the class type
+pub struct ClassSymbol {
+    name: String, // Name of the class
+    level: usize,
+}
+
+// Symbol tables for variables
 #[derive(Clone)]
 pub struct Symbol {
     name: String,
     level: usize,
     pub location: usize,
-    pub datatype: DataType
+    pub datatype: DataType,
 }
+
 #[derive(Clone)]
 pub struct SymbolLevel {
     symbols: HashMap<String, Symbol>,
@@ -76,6 +91,7 @@ impl SymbolTable {
         let currentSlot = self.symbolLevel[self.level].nextSlot ;
         self.symbolLevel[self.level].nextSlot+=1 ;
 
+
         let symb = Symbol {
             name: name.clone(),
             level: self.level,
@@ -110,6 +126,7 @@ impl SymbolTable {
         Err("Symbol not found")
     }
 }
+
 
 #[cfg(test)]
 mod test {

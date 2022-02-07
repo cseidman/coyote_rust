@@ -1,6 +1,6 @@
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation, Location};
-use crate::value::{Value};
+use crate::value::{Value, Property, Class, Visibilty};
 use crate::scanner::*;
 use TokenType::* ;
 use std::io::{stderr, Write} ;
@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use crate::ast::JumpPop::{NOPOP, POP};
 use crate::ast::Node::*;
 use std::rc::Rc;
+use crate::value::Value::array;
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -236,20 +237,51 @@ impl<'a> Compiler<'a> {
 
     pub fn arrayBuilder(&mut self) {
         // We already consumed the left bracket
-        let mut arity: usize = 0 ;
+        let mut arity: usize = 0 ; // Starting off with 0 elements
         let mut values: Vec<Node> = Vec::new() ;
 
+        let mut elementType = DataType::None ;
+
         while ! self.t_match(TOKEN_RIGHT_BRACKET) {
+
             arity += 1 ;
+            // The value we're adding to the array
             self.expression() ;
 
             self.t_match(TOKEN_COMMA) ; // Consume the comma if there is one
 
+            // Pop that value expression from above and put it into the array
             let node = self.nodes.pop().unwrap();
+
+            // The first value sets the requirement for the value of the remaining elements
+            let curType = node.clone().getDataType() ;
+            if arity == 1 {
+                elementType = curType ;
+            }
+
+            // Make sure the value of this node is the same as the others
+            if elementType != curType {
+                self.errorAtCurrent(
+                    &format!("The array is of type: {:?} but the element [{}] is: {:?}"
+                                            , elementType, arity-1, curType)
+                    )   ;
+            }
+
             values.push(node) ;
         }
+
+        let valueType = match elementType {
+            DataType::Integer => DataType::IArray,
+            DataType::Float => DataType::FArray,
+            DataType::String => DataType::SArray,
+            DataType::Bool => DataType::BArray,
+            _ => DataType::None
+        } ;
+
         self.nodePush(Array {
             arity,
+            valueType,
+            elementType,
             values
         }) ;
     }
@@ -314,6 +346,65 @@ impl<'a> Compiler<'a> {
             returnVal: Box::new(retVal)
         });
 
+    }
+
+    fn class(&mut self) {
+        let classToken = self.parser.previous();
+        let className = classToken.name ;
+
+        let mut properties: Vec<Property> = Vec::new();
+
+        self.consume(TOKEN_LEFT_BRACE, "Expect '{' after the class name") ;
+        while ! self.t_match(TOKEN_RIGHT_BRACE) {
+
+            // Check if we have one of the visibility keywords
+            let mut visibility = Visibilty::public ;
+            if self.t_match(TOKEN_PRIVATE) {
+                visibility = Visibilty::private ;
+            }
+
+            // Now the property name
+            if self.t_match(TOKEN_IDENTIFIER) {
+
+                let propertyName = self.parser.previous().name ;
+
+                // Now check the type starting with the native types
+                self.advance() ;
+                let typeToken = self.parser.previous() ;
+
+                let propertyType = match typeToken.tokenType {
+                    TOKEN_STRING => {DataType::String},
+                    TOKEN_BOOL => {DataType::Bool},
+                    TOKEN_INTEGER => {DataType::Integer},
+                    TOKEN_FLOAT => {DataType::Float},
+                    TOKEN_IDENTIFIER => {DataType::Object},
+                    _ => {
+                        self.errorAtCurrent("Unknown property type") ;
+                        panic!("Unknoxn property type") ;
+                    }
+                };
+
+                // Check if this is an array
+                if self.t_match(TOKEN_LEFT_BRACE) {
+                    // It's an array
+                    self.consume(TOKEN_RIGHT_BRACE, "Expect a ']' after the array size") ;
+                }
+
+                let property = Property {
+                    name: propertyName,
+                    visibility ,
+                    propertyType
+                };
+
+                properties.push(property) ;
+
+            }
+        }
+
+        self.nodePush(class {
+            propertyCount: properties.len() ,
+            properties: vec![]
+        }) ;
     }
 
     fn literal(&mut self) {
@@ -764,13 +855,18 @@ impl<'a> Compiler<'a> {
     fn namedArrayElement(&mut self, varname: String) {
 
         // If we have this, then it means that we're referring to
-        // an array element
-
+        // an array element. This next expression gives us the element number
         self.expression() ;
         self.consume(TOKEN_RIGHT_BRACKET, "Expect ']' after array element expression");
 
-        // Tells us which element in the array we're looking for
+        // Tells us which element in the array we're looking for. We grab the node that
+        // contains the above expression
         let indexExpr = self.nodes.pop().unwrap() ;
+
+        // If this isn't a number, we should abort
+        if indexExpr.clone().getDataType() != DataType::Integer {
+            self.errorAtCurrent("The array element must be an integer");
+        }
 
         if self.t_match(TOKEN_EQUAL) {
             // This is the value we're assigning
@@ -778,7 +874,6 @@ impl<'a> Compiler<'a> {
 
         } else {
             // If not, then it's being used as an expression
-
             let node = Node::namedArray {
                 name: varname,
                 index: Box::new(indexExpr)
@@ -1040,19 +1135,19 @@ impl<'a> Compiler<'a> {
 
             Node::Array {
                 arity,
+                valueType,
+                elementType,
                 values
             } => {
 
-                let mut dataType = DataType::Nil ;
                 let mut elements:u16 = 0 ;
 
                 for n in values {
                     elements+=1 ;
-                    let tmpType = self.walkTree(n) ;
-                    if dataType == DataType::Nil || dataType == tmpType {
-                        dataType = tmpType ;
-                    } else {
-                        self.errorAtAst("Array must have the same data types", 0) ;
+                    let curType = self.walkTree(n) ;
+                    if  curType != elementType {
+                        let msg = format!("Array is of type {:?} but element [{}] is of type {:?}", valueType, elements-1, curType);
+                        self.errorAtAst(&msg, 0) ;
                     }
                 }
 
@@ -1060,7 +1155,9 @@ impl<'a> Compiler<'a> {
                 writeOperand!(elements);
 
                 writeOp!(OP_NEWARRAY, 0) ;
-                DataType::Array
+
+                valueType
+
             },
 
             Node::BinaryExpr {
@@ -1163,11 +1260,20 @@ impl<'a> Compiler<'a> {
 
                 let datatype = self.walkTree(*varExpr, );
                 let loc = self.addVariable(name.clone(), datatype) ;
+
                 writeOp!(OP_SETVAR, 0);
                 self.chunk.addComment(format!("Declare and store variable {}", name)) ;
                 writeOperand!(loc as u16);
 
                 datatype
+            },
+
+            Node::class {
+                propertyCount,
+                properties
+            } => {
+
+                DataType::Object
             },
 
             Node::setArray {
@@ -1179,10 +1285,11 @@ impl<'a> Compiler<'a> {
                 // The stack should contain:
                 // -- index
                 // -- Value
-                // Then OP_SETAELEMENT first pops index off the stack to get to the element
+                // Then OP_xSETAELEMENT first pops index off the stack to get to the element
                 // followed by popping the value we're assigning to the variable
 
                 let symbol = self.getVariable(name.clone()) ;
+                let arrayValueType = symbol.datatype ;
 
                 // The value we're assigning
                 let valueDataType = self.walkTree(*child, );
@@ -1190,9 +1297,31 @@ impl<'a> Compiler<'a> {
                 // The index of the array
                 let indexType = self.walkTree(*index, ) ;
 
-                // Todo: Check that the variable type matches the value type
+                match arrayValueType {
+                    DataType::IArray => if valueDataType != DataType::Integer {
+                       self.errorAtCurrent(&format!("Cannot assign a value type {:?} to an integer array", valueDataType))
+                    },
+                    DataType::FArray => if valueDataType != DataType::Float {
+                        self.errorAtCurrent(&format!("Cannot assign a value type {:?} to a float array", valueDataType))
+                    },
+                    DataType::SArray => if valueDataType != DataType::String {
+                        self.errorAtCurrent(&format!("Cannot assign a value type {:?} to an String array", valueDataType))
+                    },
+                    DataType::BArray => if valueDataType != DataType::Bool {
+                        self.errorAtCurrent(&format!("Cannot assign a value type {:?} to a Bool array", valueDataType))
+                    },
+                    _ => panic!("Unknown array value type {:?}", valueDataType)
+                };
 
-                writeOp!(OP_SETAELEMENT, 0);
+                let opcode = match arrayValueType {
+                    DataType::IArray => OP_ISETAELEMENT,
+                    DataType::FArray => OP_FSETAELEMENT,
+                    DataType::SArray => OP_SSETAELEMENT,
+                    DataType::BArray => OP_BSETAELEMENT,
+                    _ => panic!("Unknown array value type {:?}", valueDataType)
+                };
+
+                writeOp!(opcode, 0);
                 self.chunk.addComment(format!("Store array {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
@@ -1205,10 +1334,19 @@ impl<'a> Compiler<'a> {
                 index
             } => {
                 let symbol = self.getVariable(name.clone()) ;
+                let arrayValueType = symbol.datatype ;
                 // The index of the array
                 let indexType = self.walkTree(*index, ) ;
 
-                writeOp!(OP_GETAELEMENT, 0);
+                let opcode = match arrayValueType {
+                    DataType::IArray => OP_IGETAELEMENT,
+                    DataType::FArray => OP_FGETAELEMENT,
+                    DataType::SArray => OP_SGETAELEMENT,
+                    DataType::BArray => OP_BGETAELEMENT,
+                    _ => panic!("Unknown array value type")
+                };
+
+                writeOp!(opcode, 0);
                 self.chunk.addComment(format!("Load array variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
@@ -1227,7 +1365,11 @@ impl<'a> Compiler<'a> {
                 if varType == DataType::None {
                     varType = valueDataType;
                 }
-                // Todo: Check that the variable type matches the value type
+
+                if varType != valueDataType {
+                    //let msg = format!("", var);
+                    //self.errorAtCurrent("Can't save a value of ") ;
+                }
 
                 writeOp!(OP_SETVAR, 0);
                 self.chunk.addComment(format!("Store variable {}", name)) ;
@@ -1468,7 +1610,6 @@ impl<'a> Compiler<'a> {
             Node::While => {
                 DataType::None
             },
-
 
             Node::Logical {
                 expr

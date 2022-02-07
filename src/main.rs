@@ -22,6 +22,7 @@ mod common;
 mod ast;
 mod symbol;
 mod errors;
+mod types;
 
 use std::fs ;
 use std::path::*;

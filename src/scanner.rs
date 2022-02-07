@@ -21,6 +21,7 @@ pub enum TokenType {
     // Literals.
     TOKEN_IDENTIFIER ,
 
+    // Native types
     TOKEN_STRING ,
     TOKEN_BOOL ,
     TOKEN_INTEGER ,
@@ -33,6 +34,8 @@ pub enum TokenType {
     TOKEN_FOR, TOKEN_FUN, TOKEN_IF, TOKEN_OR,
     TOKEN_PRINT, TOKEN_RETURN, TOKEN_SUPER, TOKEN_THIS,
     TOKEN_TRUE, TOKEN_VAR, TOKEN_WHILE, TOKEN_BREAK, TOKEN_CONTINUE,
+    // Visibility
+    TOKEN_PRIVATE,
 
     TOKEN_ERROR, TOKEN_EOF, TOKEN_CR, TOKEN_START
 }
@@ -390,7 +393,8 @@ impl Scanner {
             "while"     => TOKEN_WHILE,
             "break"     => TOKEN_BREAK,
             "continue"  => TOKEN_CONTINUE,
-             _          => TOKEN_IDENTIFIER ,
+            "private"   => TOKEN_PRIVATE,
+            _           => TOKEN_IDENTIFIER ,
         }
 
     }
