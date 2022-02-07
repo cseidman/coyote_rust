@@ -51,6 +51,44 @@ pub enum DataType {
 }
 
 impl DataType {
+
+    pub fn to_operand(&self) -> u16 {
+        match self {
+            DataType::Integer => 10,
+            DataType::Float => 20,
+            DataType::String => 30,
+            DataType::Bool => 40,
+            DataType::IArray => 50,
+            DataType::FArray => 60,
+            DataType::SArray => 70,
+            DataType::BArray => 80,
+            DataType::Dict => 90,
+            DataType::Object => 100,
+            DataType::Nil => 110,
+            DataType::None => 0
+        }
+
+    }
+
+    pub fn from_operand(d: u16) -> DataType {
+        match d {
+            10 => DataType::Integer ,
+            20 => DataType::Float ,
+            30 => DataType::String,
+            40 => DataType::Bool,
+            50 => DataType::IArray,
+            60 => DataType::FArray,
+            70 => DataType::SArray,
+            80 => DataType::BArray,
+            90 => DataType::Dict,
+            100 => DataType::Object,
+            110 => DataType::Nil,
+            0 => DataType::None,
+            _ => DataType::None,
+        }
+
+    }
+
     pub fn emit(&self) -> String {
         match self {
             DataType::Integer => "I",
@@ -112,10 +150,12 @@ pub enum Node {
         rhs: Box<Node>,
     },
     Logical {
+        line: usize,
         expr: Vec<Node>
     },
 
     Array {
+        line: usize,
         arity: usize,
         valueType: DataType,
         elementType: DataType,
@@ -123,58 +163,69 @@ pub enum Node {
     },
 
     Dict {
+        line: usize,
         arity: usize,
         keys: Vec<Node>,
         values: Vec<Node>
     },
 
     VarDecl {
+        line: usize,
         name: String ,
         assigned: bool,
         varExpr: Box<Node>
     },
     setVar {
+        line: usize,
         name: String ,
         datatype: DataType,
         child: Box<Node>
     },
     namedVar {
+        line: usize,
         name: String
     },
     setArray {
+        line: usize,
         name: String,
         index: Box<Node>,
         child: Box<Node>
     },
 
     setHash {
+        line: usize,
         name: String,
         key: Box<Node>,
         child: Box<Node>
     },
 
     namedArray {
+        line: usize,
         name: String,
         index: Box<Node>
     },
 
     class {
+        line: usize,
         propertyCount: usize,
         properties: Vec<Node>
     },
 
     namedHash {
+        line: usize,
         name: String,
         key: Box<Node>
     },
 
     Return {
+        line: usize,
         returnVal: Box<Node>
     },
     Root {
         children: Vec<Node>
     },
     Print {
+        line: usize,
         printExpr: Box<Node>
     },
 
@@ -182,13 +233,16 @@ pub enum Node {
     EndBlock,
 
     And {
+        line: usize,
         expr: Box<Node>,
     },
     Or {
+        line: usize,
         expr: Box<Node>,
     },
     //Loop,
     EndWhile {
+        line: usize,
         condition: Vec<Node>,
         statements: Vec<Node>
     },

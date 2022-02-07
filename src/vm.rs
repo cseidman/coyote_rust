@@ -14,6 +14,7 @@ use std::rc::Rc;
 use std::io::{stderr, Write,self,stdin,stdout} ;
 use std::ops::Deref;
 use std::cell::RefCell;
+use crate::ast::DataType;
 
 pub struct Frame<'a> {
     slots: &'a [Value],
@@ -358,27 +359,29 @@ impl<'a> VM<'a> {
                     self.stack[slot] = hash ;
                 },
 
-                OP_ISETAELEMENT
-                | OP_SSETAELEMENT
-                | OP_BSETAELEMENT
-                | OP_FSETAELEMENT => {
-
+                OP_ISETAELEMENT => {
                     let slot = READ_OPERAND!() as usize;
-                    let mut array = self.stack[slot].clone() ;
-
-                    let index = self.pop().get_integer() as usize;
-                    let value = self.pop() ;
-
-                    let ar = array.get_array_mut();
-
-                    ar.put(index, value);
-                    self.stack[slot] = array ;
+                    self.setArrayElement(DataType::Integer, slot);
+                },
+                OP_SSETAELEMENT => {
+                    let slot = READ_OPERAND!() as usize;
+                    self.setArrayElement(DataType::String, slot);
+                },
+                OP_BSETAELEMENT => {
+                    let slot = READ_OPERAND!() as usize;
+                    self.setArrayElement(DataType::Bool, slot);
+                },
+                OP_FSETAELEMENT => {
+                    let slot = READ_OPERAND!() as usize;
+                    self.setArrayElement(DataType::Float, slot);
                 },
 
                 OP_NEWARRAY => {
 
+                    let datatype = DataType::from_operand(self.pop().get_integer() as u16) ;
+
                     let arity = self.pop().get_integer() as usize;
-                    let mut array = Array::new(arity) ;
+                    let mut array = Array::new(arity, datatype) ;
 
                     for _ in 0..arity {
                         array.insert(self.pop().clone()) ;
@@ -424,6 +427,24 @@ impl<'a> VM<'a> {
 
         }
 
+    }
+
+    fn setArrayElement(&mut self, datatype: DataType, slot: usize) {
+
+        let mut array = self.stack[slot].clone();
+
+        let index = self.pop().get_integer() as usize;
+        let value = self.pop();
+
+        let ar = array.get_array_mut();
+
+        let arrayDataType = ar.getDataType();
+        if arrayDataType != datatype {
+            panic!("Incompatible data types for array") ;
+        }
+
+        ar.put(index, value);
+        self.stack[slot] = array;
     }
 }
 

@@ -242,6 +242,8 @@ impl<'a> Compiler<'a> {
 
         let mut elementType = DataType::None ;
 
+        let line = self.parser.previous().line ;
+
         while ! self.t_match(TOKEN_RIGHT_BRACKET) {
 
             arity += 1 ;
@@ -279,6 +281,7 @@ impl<'a> Compiler<'a> {
         } ;
 
         self.nodePush(Array {
+            line,
             arity,
             valueType,
             elementType,
@@ -293,6 +296,7 @@ impl<'a> Compiler<'a> {
         let mut values: Vec<Node> = Vec::new() ;
 
         let mut arity= 0 ;
+        let line = self.parser.previous().line ;
 
         while ! self.t_match(TOKEN_RIGHT_BRACKET) {
 
@@ -313,6 +317,7 @@ impl<'a> Compiler<'a> {
         }
 
         self.nodePush(Dict {
+            line,
             arity,
             keys,
             values
@@ -342,7 +347,9 @@ impl<'a> Compiler<'a> {
     fn endCompiler(&mut self) {
 
         let retVal = self.nodes.pop().unwrap() ;
+        let line = self.parser.previous().line ;
         self.nodePush(Node::Return {
+            line,
             returnVal: Box::new(retVal)
         });
 
@@ -351,7 +358,7 @@ impl<'a> Compiler<'a> {
     fn class(&mut self) {
         let classToken = self.parser.previous();
         let className = classToken.name ;
-
+        let line = classToken.line ;
         let mut properties: Vec<Property> = Vec::new();
 
         self.consume(TOKEN_LEFT_BRACE, "Expect '{' after the class name") ;
@@ -402,6 +409,7 @@ impl<'a> Compiler<'a> {
         }
 
         self.nodePush(class {
+            line,
             propertyCount: properties.len() ,
             properties: vec![]
         }) ;
@@ -612,25 +620,31 @@ impl<'a> Compiler<'a> {
     }
 
     fn printStatement(&mut self) {
+        let line = self.parser.previous().line ;
         self.expression();
         let printExpr = self.nodes.pop().unwrap() ;
         self.nodePush(Node::Print {
+            line,
             printExpr: Box::new(printExpr)
         })
     }
 
     fn and_(&mut self) {
+        let line = self.parser.previous().line ;
         self.parsePrecedence(PREC_AND);
         let node =  self.nodes.pop().unwrap() ;
         self.nodes.push(And {
+            line,
             expr: Box::new(node)
         }) ;
     }
 
     fn or_(&mut self) {
+        let line = self.parser.previous().line ;
         self.parsePrecedence(PREC_OR);
         let node =  self.nodes.pop().unwrap() ;
         self.nodes.push(Or {
+            line,
             expr: Box::new(node)
         }) ;
     }
@@ -704,7 +718,7 @@ impl<'a> Compiler<'a> {
 
         self.chunk.pushScope() ;
         let mut conditional: Vec<Node> = Vec::new() ;
-
+        let line = self.parser.previous().line ;
         // Signals the beginning of the while
         self.nodePush(Node::While);
 
@@ -742,6 +756,7 @@ impl<'a> Compiler<'a> {
         }
 
         let whileNode = Node::EndWhile {
+            line,
             condition: conditional,
             statements: nodes
         } ;
@@ -790,23 +805,27 @@ impl<'a> Compiler<'a> {
     // *** Variable management **
 
     fn assignValueToVar(&mut self, varname: String) {
+        let line = self.parser.previous().line ;
         self.expression() ;
 
         let childVal = self.nodes.pop().unwrap() ;
 
         self.nodePush(Node::setVar {
+            line,
             name: varname,
-            datatype: DataType::None,
+            datatype: childVal.clone().getDataType(),
             child: Box::new(childVal)
         });
     }
 
     fn assignValueToArray(&mut self, varname: String,n: Node) {
+        let line = self.parser.previous().line ;
         // The value we're about to assign
         self.expression() ;
         let childVal = self.nodes.pop().unwrap() ;
 
         self.nodePush(Node::setArray {
+            line,
             name: varname,
             index: Box::new(n),
             child: Box::new(childVal)
@@ -814,11 +833,13 @@ impl<'a> Compiler<'a> {
     }
 
     fn assignValueToHash(&mut self, varname: String,n: Node) {
+        let line = self.parser.previous().line ;
         // The value we're about to assign
         self.expression() ;
         let childVal = self.nodes.pop().unwrap() ;
 
         self.nodePush(Node::setHash {
+            line,
             name: varname,
             key: Box::new(n),
             child: Box::new(childVal)
@@ -826,6 +847,8 @@ impl<'a> Compiler<'a> {
     }
 
     fn namedHashKey(&mut self, varname: String) {
+
+        let line = self.parser.previous().line ;
 
         // If we have this, then it means that we're referring to
         // a hash key
@@ -844,6 +867,7 @@ impl<'a> Compiler<'a> {
             // If not, then it's being used as an expression
 
             let node = Node::namedHash {
+                line,
                 name: varname,
                 key: Box::new(keyExpr),
             };
@@ -853,7 +877,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn namedArrayElement(&mut self, varname: String) {
-
+        let line = self.parser.previous().line ;
         // If we have this, then it means that we're referring to
         // an array element. This next expression gives us the element number
         self.expression() ;
@@ -875,6 +899,7 @@ impl<'a> Compiler<'a> {
         } else {
             // If not, then it's being used as an expression
             let node = Node::namedArray {
+                line,
                 name: varname,
                 index: Box::new(indexExpr)
             };
@@ -884,12 +909,14 @@ impl<'a> Compiler<'a> {
     }
 
     fn namedSingleVariable(&mut self, varname: String) {
+        let line = self.parser.previous().line ;
         // This means we're assigning a value
         if self.t_match(TOKEN_EQUAL) {
             self.assignValueToVar(varname) ;
         } else {
             // If not, then it's being used as an expression
             let node = Node::namedVar {
+                line,
                 name: varname
             };
             self.nodePush(node);
@@ -919,7 +946,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn varDeclaration(&mut self) {
-
+        let line = self.parser.previous().line ;
         self.advance();
 
         let token = self.parser.previous() ;
@@ -943,6 +970,7 @@ impl<'a> Compiler<'a> {
         let declExpr = self.nodes.pop().unwrap() ;
 
         let node = Node::VarDecl {
+            line,
             name: varname,
             assigned: isAssigned,
             varExpr: Box::new(declExpr)
@@ -1067,6 +1095,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Dict {
+                line,
                 arity,
                 keys,
                 values
@@ -1082,15 +1111,16 @@ impl<'a> Compiler<'a> {
                     elements+=1 ;
                 }
 
-                writeOp!(OP_PUSH, 0);
+                writeOp!(OP_PUSH, line);
                 writeOperand!(elements as u16);
 
-                writeOp!(OP_NEWDICT, 0) ;
+                writeOp!(OP_NEWDICT, line) ;
 
                 DataType::Dict
             },
 
             Node::namedHash {
+                line,
                 name,
                 key
             } => {
@@ -1098,7 +1128,7 @@ impl<'a> Compiler<'a> {
                 // The index of the array
                 let keyType = self.walkTree(*key, ) ;
 
-                writeOp!(OP_GETHELEMENT, 0);
+                writeOp!(OP_GETHELEMENT, line);
                 self.chunk.addComment(format!("Load hash variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
@@ -1106,6 +1136,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::setHash {
+                line,
                 name,
                 key,
                 child
@@ -1126,7 +1157,7 @@ impl<'a> Compiler<'a> {
 
                 // Todo: Check that the variable type matches the value type
 
-                writeOp!(OP_SETHELEMENT, 0);
+                writeOp!(OP_SETHELEMENT, line);
                 self.chunk.addComment(format!("Store hash {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
@@ -1134,6 +1165,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Array {
+                line,
                 arity,
                 valueType,
                 elementType,
@@ -1151,10 +1183,16 @@ impl<'a> Compiler<'a> {
                     }
                 }
 
-                writeOp!(OP_PUSH, 0);
+                // Push the arity
+                writeOp!(OP_PUSH, line);
                 writeOperand!(elements);
 
-                writeOp!(OP_NEWARRAY, 0) ;
+                // Push the datatype of the array elements
+                writeOp!(OP_PUSH, line) ;
+                writeOperand!(elementType.to_operand());
+
+
+                writeOp!(OP_NEWARRAY, line) ;
 
                 valueType
 
@@ -1253,6 +1291,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::VarDecl {
+                line,
                 name,
                 assigned,
                 varExpr
@@ -1261,7 +1300,7 @@ impl<'a> Compiler<'a> {
                 let datatype = self.walkTree(*varExpr, );
                 let loc = self.addVariable(name.clone(), datatype) ;
 
-                writeOp!(OP_SETVAR, 0);
+                writeOp!(OP_SETVAR, line);
                 self.chunk.addComment(format!("Declare and store variable {}", name)) ;
                 writeOperand!(loc as u16);
 
@@ -1269,6 +1308,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::class {
+                line,
                 propertyCount,
                 properties
             } => {
@@ -1277,6 +1317,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::setArray {
+                line,
                 name,
                 index,
                 child
@@ -1321,7 +1362,7 @@ impl<'a> Compiler<'a> {
                     _ => panic!("Unknown array value type {:?}", valueDataType)
                 };
 
-                writeOp!(opcode, 0);
+                writeOp!(opcode, line);
                 self.chunk.addComment(format!("Store array {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
@@ -1330,6 +1371,7 @@ impl<'a> Compiler<'a> {
             } ,
 
             Node::namedArray {
+                line,
                 name,
                 index
             } => {
@@ -1346,32 +1388,45 @@ impl<'a> Compiler<'a> {
                     _ => panic!("Unknown array value type")
                 };
 
-                writeOp!(opcode, 0);
+                let elementType = match arrayValueType {
+                    DataType::IArray => DataType::Integer,
+                    DataType::FArray => DataType::Float,
+                    DataType::SArray => DataType::String,
+                    DataType::BArray => DataType::Bool,
+                    _ => panic!("Unknown array value type")
+                };
+
+
+                writeOp!(opcode, line);
                 self.chunk.addComment(format!("Load array variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
-                symbol.datatype
+                elementType
             } ,
 
             Node::setVar {
+                line,
                 name,
                 datatype,
                 child
             } => {
                 let symbol = self.getVariable(name.clone()) ;
-                let valueDataType = self.walkTree(*child, );
+                let valueDataType = self.walkTree(*child);
 
-                let mut varType = datatype ;
+                let mut varType = symbol.datatype ;
                 if varType == DataType::None {
                     varType = valueDataType;
                 }
 
+                // Make sure we don't set a value incompatible with the storage
+                // type of the variable
                 if varType != valueDataType {
-                    //let msg = format!("", var);
-                    //self.errorAtCurrent("Can't save a value of ") ;
+                    let msg = format!("Variable is of type {:?} and value is of type {:?}",
+                                      varType, valueDataType);
+                    self.errorAtCurrent(&msg) ;
                 }
 
-                writeOp!(OP_SETVAR, 0);
+                writeOp!(OP_SETVAR, line);
                 self.chunk.addComment(format!("Store variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
@@ -1379,11 +1434,12 @@ impl<'a> Compiler<'a> {
             },
 
             Node::namedVar {
+                line,
                 name
             } => {
                 let symbol = self.getVariable(name.clone()) ;
 
-                writeOp!(OP_LOADVAR, 0);
+                writeOp!(OP_LOADVAR, line);
                 self.chunk.addComment(format!("Load variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
@@ -1401,9 +1457,10 @@ impl<'a> Compiler<'a> {
             },
 
             Node::And {
+                line,
                 expr
             } => {
-                writeOp!(OP_JUMP_IF_FALSE_NOPOP,0) ;
+                writeOp!(OP_JUMP_IF_FALSE_NOPOP,line) ;
                 let loc = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
                 writeOp!(OP_POP,0) ;
@@ -1418,9 +1475,10 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Or {
+                line,
                 expr
             } => {
-                writeOp!(OP_JUMP_IF_FALSE_NOPOP,0) ;
+                writeOp!(OP_JUMP_IF_FALSE_NOPOP,line) ;
                 let loc = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
 
@@ -1440,21 +1498,23 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Print {
+                line,
                 printExpr
             } => {
-                let datatype = self.walkTree(*printExpr, );
+                let datatype = self.walkTree(*printExpr);
                 match datatype {
-                    DataType::String => writeOp!(OP_SPRINT,0),
-                    _ => writeOp!(OP_PRINT,0)
+                    DataType::String => writeOp!(OP_SPRINT,line),
+                    _ => writeOp!(OP_PRINT,line)
                 }
                 datatype
             },
 
             Node::Return {
+                line,
                 returnVal
             } => {
-                let datatype = self.walkTree(*returnVal, );
-                writeOp!(OP_RETURN,0);
+                let datatype = self.walkTree(*returnVal);
+                writeOp!(OP_RETURN,line);
                 datatype
             },
 
@@ -1546,6 +1606,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::EndWhile {
+                line,
                 condition,
                 statements
             } => {
@@ -1612,6 +1673,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Logical {
+                line,
                 expr
             } => {
                 DataType::Bool

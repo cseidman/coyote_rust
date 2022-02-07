@@ -127,16 +127,22 @@ impl PartialOrd for Dict {
 #[derive(Debug,Clone, PartialOrd, PartialEq)]
 pub struct Array {
     size: usize,
-    values: Vec<Value>
+    values: Vec<Value>,
+    datatype: DataType
 }
 
 impl Array {
 
-    pub fn new(size: usize) -> Self {
+    pub fn new(size: usize, datatype: DataType) -> Self {
         Self {
             size,
-            values: Vec::with_capacity(size)
+            values: Vec::with_capacity(size),
+            datatype
         }
+    }
+
+    pub fn getDataType(&self) -> DataType {
+        self.datatype
     }
 
     pub fn check_size(&self, index: usize) {
@@ -276,6 +282,20 @@ impl Display for Value {
 }
 
 impl Value {
+
+    pub fn getDataType(&self) -> DataType {
+        match self {
+            Value::integer(..) => DataType::Integer,
+            Value::float(..) => DataType::Float,
+            Value::string(..) => DataType::String,
+            Value::array(x) => x.datatype,
+            Value::hash(..) => DataType::Dict,
+            Value::logical(..) => DataType::Bool,
+            Value::nil => DataType::Nil,
+            Value::empty => DataType::None,
+            Value::class(..) => DataType::Object,
+        }
+    }
 
     pub fn isNil(&self) -> bool {
         if let Value::nil = self {
