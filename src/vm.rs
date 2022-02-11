@@ -200,7 +200,7 @@ impl<'a> VM {
 
         macro_rules! setArrayElement {
             ($datatype:expr, $slot:expr) => {
-                let mut array = frames[fPtr].data[$slot+8092].clone();
+                let mut array = frames[fPtr].data[$slot].clone();
 
                 let index = pop!().get_integer() as usize;
                 let value = pop!();
@@ -213,7 +213,7 @@ impl<'a> VM {
                 }
 
                 ar.put(index, value);
-                frames[fPtr].data[$slot+8092] = array;
+                frames[fPtr].data[$slot] = array;
             };
         }
 
