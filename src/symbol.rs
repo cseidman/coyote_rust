@@ -62,6 +62,10 @@ impl SymbolTable {
         t
     }
 
+    pub fn varCount(&self) -> usize {
+        self.symbolLevel[self.level-1].symbols.len()
+    }
+
     pub fn debug(&self) {
         for l in self.symbolLevel.iter() {
             for s in l.symbols.keys() {

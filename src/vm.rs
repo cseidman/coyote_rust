@@ -16,22 +16,23 @@ use std::ops::Deref;
 use std::cell::RefCell;
 use crate::ast::DataType;
 
-pub struct Frame<'a> {
-    pub chunk: &'a mut Chunk,
-    pub slotPtr: usize,
-    pub data: &'a mut [Value],
-    pub ip: &'a mut usize
+// We only use the frame to track the location of the current
+// pointers
+pub struct Frame {
+    pub chunk: Chunk, // New chunk coming from a function or method
+    pub slotPtr: usize, // This is the pointer as it looks to the local frame
+    pub ip: usize // This tracks the instruction pointer of the local frame
 }
 
 pub struct VM {
-    chunk: Chunk,
+    chunk: Chunk, // This is a global chunk
     ip: usize,
     
     stack: Vec<Value>,
     stackTop: usize,
 }
 
-impl<'a> VM {
+impl VM {
 
     pub fn new() -> Self {
 
@@ -39,7 +40,7 @@ impl<'a> VM {
             chunk: Chunk::new(),
             ip: 0,
             stack: Vec::with_capacity(1024000),
-            stackTop: 8092, // Start at an arbitrary position
+            stackTop: 0, // Start at an arbitrary position
 
         } ;
 
@@ -77,30 +78,59 @@ impl<'a> VM {
         let _ = stderr().write_fmt(format_args!("[line {}] in script\n", line));
     }
 
-    pub fn run(&'a mut self) -> InterpretResult {
+    pub fn run(&mut self) -> InterpretResult {
 
         let f = Frame {
-            chunk: &mut self.chunk,
-            ip: &mut self.ip,
+            chunk: self.chunk.clone(),
+            ip: 0,
             slotPtr: 0,
-            data: &mut self.stack[self.stackTop..]
         } ;
 
-        let mut frames: Vec<Frame<'a>> = Vec::new() ;
+        let mut frames: Vec<Frame> = Vec::new() ;
         frames.push(f) ;
+
         let mut fPtr:usize = 0 ;
-       
+        let top = self.stackTop;
+        let mut local = &mut self.stack[top ..] ;
+
+        macro_rules! push_frame {
+            ($func:expr) => {
+
+                let fr = Frame {
+                    chunk: $func.chunk,
+                    ip: 0,
+                    slotPtr: 0,
+                } ;
+
+                let start = top + frames[fPtr].slotPtr ;
+
+                frames.push(fr) ;
+                fPtr+=1 ;
+                local = &mut self.stack[start..] ;
+
+            };
+        }
+
+        macro_rules! pop_frame {
+            () => {
+                let start = top  ;
+                frames.pop() ;
+                local = &mut self.stack[start..] ;
+                fPtr-=1
+            };
+        }
+
         macro_rules! READ_OPERAND {
             () => {
                 {
                   let mut val:[u8;2] = Default::default();
-                  let ip = *frames[fPtr].ip ;
+                  let ip = frames[fPtr].ip ;
 
                   val.copy_from_slice(&frames[fPtr]
                     .chunk
                     .code[ip..(ip+2)]) ;
 
-                  *frames[fPtr].ip+=2;
+                  frames[fPtr].ip+=2;
                   u16::from_le_bytes(val)
                 }
             };
@@ -108,8 +138,8 @@ impl<'a> VM {
 
         macro_rules! READ_BYTE {
             () => {{
-                let p = *frames[fPtr].ip;
-                *frames[fPtr].ip+=1;
+                let p = frames[fPtr].ip;
+                frames[fPtr].ip+=1;
                 frames[fPtr].chunk.code[p]
             }};
         }
@@ -117,7 +147,7 @@ impl<'a> VM {
         macro_rules! push {
             ($value:expr) => {
                 let ptr = frames[fPtr].slotPtr ;
-                frames[fPtr].data[ptr] = $value ;
+                local[ptr] = $value;
                 frames[fPtr].slotPtr+=1 ;
             };
         }
@@ -125,13 +155,13 @@ impl<'a> VM {
         macro_rules! pop {
             () => {{
                 frames[fPtr].slotPtr-=1 ;
-                frames[fPtr].data[frames[fPtr].slotPtr].clone()
+                local[frames[fPtr].slotPtr].clone()
             }};
         }
 
         macro_rules! peek {
             ($distance:expr) => {{
-                frames[fPtr].data[frames[fPtr].slotPtr-$distance-1].clone()
+                local[frames[fPtr].slotPtr-$distance-1].clone()
             }};
         }
 
@@ -200,7 +230,7 @@ impl<'a> VM {
 
         macro_rules! setArrayElement {
             ($datatype:expr, $slot:expr) => {
-                let mut array = frames[fPtr].data[$slot].clone();
+                let mut array = local[$slot].clone();
 
                 let index = pop!().get_integer() as usize;
                 let value = pop!();
@@ -213,7 +243,7 @@ impl<'a> VM {
                 }
 
                 ar.put(index, value);
-                frames[fPtr].data[$slot] = array;
+                local[$slot] = array;
             };
         }
 
@@ -223,7 +253,7 @@ impl<'a> VM {
             print!("          ");
             for slot in 0..frames[fPtr].slotPtr {
 
-                let val = frames[fPtr].data[slot].clone() ;
+                let val = local[slot].clone() ;
                 if val.isEmpty() {
                     continue;
                 }
@@ -233,7 +263,7 @@ impl<'a> VM {
                 print!(" ]");
             }
             println!();
-            disassembleInstruction(&frames[fPtr].chunk, *frames[fPtr].ip) ;
+            disassembleInstruction(&frames[fPtr].chunk, frames[fPtr].ip) ;
             /*** Debug ***/
 
             let instruction:OpCode = READ_BYTE!().into();
@@ -320,14 +350,14 @@ impl<'a> VM {
 
                 OP_LOADVAR => {
                     let slot = READ_OPERAND!() as usize;
-                    let val = frames[fPtr].data[slot+8092].clone() ;
+                    let val = local[slot].clone() ;
                     push!(val) ;
                 }
 
                 OP_SETVAR => {
                     let slot = READ_OPERAND!() as usize;
-                    frames[fPtr].data[slot+8092] = pop!() ;
-                 }
+                    local[slot] = peek!(0) ;
+                  }
 
                 OP_PRINT => {
                     let data = pop!() ;
@@ -345,7 +375,7 @@ impl<'a> VM {
                     let jumpto = READ_OPERAND!() as usize;
 
                     if !logicalResult {
-                        *frames[fPtr].ip += jumpto ;
+                        frames[fPtr].ip += jumpto ;
                     }
                 },
 
@@ -355,17 +385,17 @@ impl<'a> VM {
                     let jumpto = READ_OPERAND!() as usize;
 
                     if !logicalResult {
-                        *frames[fPtr].ip += jumpto ;
+                        frames[fPtr].ip += jumpto ;
                     }
 
                 },
 
                 OP_JUMP =>{
-                    *frames[fPtr].ip += READ_OPERAND!() as usize;
+                    frames[fPtr].ip += READ_OPERAND!() as usize;
                 },
 
                 OP_LOOP => {
-                    *frames[fPtr].ip -= READ_OPERAND!() as usize
+                    frames[fPtr].ip -= READ_OPERAND!() as usize
                 },
 
                 OP_NOP => {},
@@ -380,7 +410,7 @@ impl<'a> VM {
                     let index = pop!().get_integer() as usize;
 
                     let slot = READ_OPERAND!() as usize;
-                    let array = frames[fPtr].data[slot+8092].clone().get_array() ;
+                    let array = local[slot].clone().get_array() ;
 
                     push!(array.get(index));
 
@@ -389,7 +419,7 @@ impl<'a> VM {
                 OP_SETHELEMENT => {
 
                     let slot = READ_OPERAND!() as usize;
-                    let mut hash = frames[fPtr].data[slot].clone() ;
+                    let mut hash = local[slot].clone() ;
 
                     let key = HKey::new(pop!());
                     let value = pop!() ;
@@ -397,7 +427,7 @@ impl<'a> VM {
                     let h = hash.get_dict_mut();
 
                     h.insert(key, value);
-                    frames[fPtr].data[slot] = hash ;
+                    local[slot] = hash ;
                 },
 
                 OP_ISETAELEMENT => {
@@ -438,7 +468,7 @@ impl<'a> VM {
                     let k = HKey::new(key) ;
 
                     let slot = READ_OPERAND!() as usize;
-                    let dict = frames[fPtr].data[slot].clone().get_dict() ;
+                    let dict = local[slot].clone().get_dict() ;
                     let value = dict.get(k).unwrap_or(&Value::nil).clone();
                     push!(value);
 
@@ -463,14 +493,19 @@ impl<'a> VM {
                     push!(dict) ;
                 },
                 OP_RETURN => {
-                    frames.pop();
-                    return INTERPRET_OK
+                    if fPtr > 0 {
+                        pop_frame!();
+                    } else {
+                        return INTERPRET_OK
+                    }
+
                 },
                 OP_CALL => {
 
                     let args = READ_OPERAND!() ;
-
                     let fnc = get_function!(args) ;
+
+                    push_frame!(fnc);
 
                 },
 

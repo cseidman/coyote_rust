@@ -1160,17 +1160,17 @@ impl<'a> Compiler<'a> {
         let mut arity = 0 ;
         while !self.t_match(TOKEN_RIGHT_PAREN) {
             arity+=1 ;
-            self.block() ;
+            self.expression() ;
             params.insert(0, self.nodes.pop().unwrap()) ;
         }
-
+        self.pushScope();
         let fnode = Node::call {
             line,
             arity,
             func: funcName,
             parameters: params
         };
-
+        self.popScope();
         self.nodePush(fnode) ;
     }
 
@@ -1189,7 +1189,6 @@ impl<'a> Compiler<'a> {
             }
             self.declaration();
         }
-
         self.endCompiler() ;
 
         let tree = self.nodes.clone() ;
@@ -1675,6 +1674,9 @@ impl<'a> Compiler<'a> {
             },
 
             Node::EndBlock => {
+                for _ in 0..self.symbTable.varCount() {
+                    writeOp!(OP_POP,0) ;
+                }
                 self.symbTable.popLevel();
                 DataType::None
             },
@@ -1956,6 +1958,8 @@ impl<'a> Compiler<'a> {
                 for n in statements {
                     self.walkTree(n) ;
                 }
+                // Return from the function
+                writeOp!(OP_RETURN, line) ;
 
                 // Now that the instructions are there, we replace it
                 // with the completed function
