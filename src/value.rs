@@ -14,6 +14,7 @@ use std::ops::{Add, Sub};
 use blake2::{Blake2b, Digest};
 use blake2::digest::generic_array::{GenericArray};
 use std::cell::RefCell;
+use crate::chunk::Chunk;
 
 pub type hashkey = GenericArray<u8, u64> ;
 
@@ -22,8 +23,23 @@ pub fn printValue(value: Value) {
 }
 
 // This is used for constants
+#[derive(Debug, Clone, PartialOrd)]
 pub struct ValueArray{
     pub values: Vec<Value>
+}
+
+impl PartialEq for ValueArray {
+    fn eq(&self, other: &Self) -> bool {
+       if self.values.len() == other.values.len() {
+           for i in 0..self.values.len() {
+               if self.values[i] != other.values[i] {
+                   return false ;
+               }
+           }
+           return true ;
+       }
+       false
+    }
 }
 
 impl ValueArray {
@@ -218,6 +234,32 @@ impl PartialEq for Class {
     }
 }
 
+// Function
+#[derive(Debug, Clone, PartialOrd)]
+pub struct Function {
+    pub name: String,
+    pub arity: u16,
+    pub chunk: Chunk,
+    pub returnType: DataType
+}
+
+impl PartialEq for Function {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Function {
+    pub fn new(name: String, arity: u16, chunk: Chunk, returnType: DataType) -> Self {
+        Self {
+            name,
+            arity,
+            chunk,
+            returnType
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialOrd)]
 pub enum Value {
     integer(i64),
@@ -228,7 +270,8 @@ pub enum Value {
     class(Class),
     hash(Dict),
     nil,
-    empty
+    empty,
+    function(Function)
 }
 
 impl Display for Value {
@@ -294,7 +337,15 @@ impl Value {
             Value::nil => DataType::Nil,
             Value::empty => DataType::None,
             Value::class(..) => DataType::Object,
+            Value::function(..) => DataType::Function
         }
+    }
+
+    pub fn get_function(self) -> Function {
+        if let Value::function(x) = self {
+            return x;
+        }
+        panic!("Value {:?} is not a function", self) ;
     }
 
     pub fn isNil(&self) -> bool {
@@ -400,6 +451,13 @@ impl PartialEq for Value {
             },
             Value::class(x) => {
                 false
+            },
+            Value::function(x) => {
+                if let Value::function(y) = other {
+                    x.name == y.name && x.arity == y.arity
+                } else {
+                    panic!("Mismatch when trying to equate functions");
+                }
             },
             Value::array(x) => {
                 if let Value::array(y) = other {

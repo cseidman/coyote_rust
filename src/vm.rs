@@ -17,22 +17,21 @@ use std::cell::RefCell;
 use crate::ast::DataType;
 
 pub struct Frame<'a> {
-    slots: &'a [Value],
-    ip: usize
+    pub chunk: &'a mut Chunk,
+    pub slotPtr: usize,
+    pub data: &'a mut [Value],
+    pub ip: &'a mut usize
 }
 
-pub struct VM<'a> {
+pub struct VM {
     chunk: Chunk,
     ip: usize,
     
     stack: Vec<Value>,
     stackTop: usize,
-    
-    frames: Vec<Frame<'a>>,
-
 }
 
-impl<'a> VM<'a> {
+impl<'a> VM {
 
     pub fn new() -> Self {
 
@@ -41,32 +40,13 @@ impl<'a> VM<'a> {
             ip: 0,
             stack: Vec::with_capacity(1024000),
             stackTop: 8092, // Start at an arbitrary position
-            frames: Vec::new(),
+
         } ;
 
-        for _ in 0 .. 8092 {
+        for _ in 0 .. 1024000 {
             vm.stack.push(Value::empty);
         }
         vm
-    }
-
-    pub fn push(&mut self, value:Value) {
-        //self.stack[self.stackTop] = value;
-        self.stack.push(value);
-        self.stackTop+=1 ;
-    }
-
-    pub fn peek(&mut self, distance: usize) -> Value {
-        let index = self.stackTop-1-distance ;
-        self.stack[index].clone()
-    }
-
-    pub fn pop(&mut self) -> Value {
-        self.stackTop-=1 ;
-        //let idx = self.stackTop ;
-        //let value = self.stack[idx].clone() ;
-        self.stack.pop().unwrap()
-
     }
 
     pub fn reset(&mut self) {
@@ -91,69 +71,84 @@ impl<'a> VM<'a> {
         compileResult
     }
 
-    pub fn debug(&self) {
-
-        print!("          ");
-        for slot in 8092..self.stackTop {
-
-            let val = self.stack[slot].clone() ;
-            if val.isEmpty() {
-                continue;
-            }
-
-            print!("[ ");
-            printValue(val);
-            print!(" ]");
-        }
-        println!();
-        disassembleInstruction(&self.chunk, self.ip) ;
-
-    }
-
     pub fn runtimeError(&self, message: &'static str) {
         let instruction = self.chunk.code[self.ip-1] ;
         let line = self.chunk.lines[self.ip-1];
         let _ = stderr().write_fmt(format_args!("[line {}] in script\n", line));
     }
 
-    pub fn run(&mut self) -> InterpretResult {
+    pub fn run(&'a mut self) -> InterpretResult {
 
+        let f = Frame {
+            chunk: &mut self.chunk,
+            ip: &mut self.ip,
+            slotPtr: 0,
+            data: &mut self.stack[self.stackTop..]
+        } ;
+
+        let mut frames: Vec<Frame<'a>> = Vec::new() ;
+        frames.push(f) ;
+        let mut fPtr:usize = 0 ;
+       
         macro_rules! READ_OPERAND {
             () => {
                 {
                   let mut val:[u8;2] = Default::default();
-                  val.copy_from_slice(&self.chunk.code[self.ip..(self.ip+2)]) ;
-                  self.ip+=2;
+                  let ip = *frames[fPtr].ip ;
+
+                  val.copy_from_slice(&frames[fPtr]
+                    .chunk
+                    .code[ip..(ip+2)]) ;
+
+                  *frames[fPtr].ip+=2;
                   u16::from_le_bytes(val)
                 }
             };
         }
 
         macro_rules! READ_BYTE {
-            () => {
-                {
-                    self.ip+=1 ;
-                    self.chunk.code[self.ip-1]
-                }
+            () => {{
+                let p = *frames[fPtr].ip;
+                *frames[fPtr].ip+=1;
+                frames[fPtr].chunk.code[p]
+            }};
+        }
+
+        macro_rules! push {
+            ($value:expr) => {
+                let ptr = frames[fPtr].slotPtr ;
+                frames[fPtr].data[ptr] = $value ;
+                frames[fPtr].slotPtr+=1 ;
             };
         }
 
+        macro_rules! pop {
+            () => {{
+                frames[fPtr].slotPtr-=1 ;
+                frames[fPtr].data[frames[fPtr].slotPtr].clone()
+            }};
+        }
+
+        macro_rules! peek {
+            ($distance:expr) => {{
+                frames[fPtr].data[frames[fPtr].slotPtr-$distance-1].clone()
+            }};
+        }
+
         macro_rules! IBINOP {
-            ($binop:tt) => {
-                {
-                    let rh = self.pop().get_integer() ;
-                    let lh = self.pop().get_integer() ;
-                    self.push(Value::integer(lh $binop rh));
-                }
-            };
+            ($binop:tt) => {{
+                let rh = pop!().get_integer() ;
+                let lh = pop!().get_integer() ;
+                push!(Value::integer(lh $binop rh));
+            }};
         }
 
         macro_rules! FBINOP {
             ($binop:tt) => {
                 {
-                    let rh = self.pop().get_float() ;
-                    let lh = self.pop().get_float() ;
-                    self.push(Value::float(lh $binop rh));
+                    let rh = pop!().get_float() ;
+                    let lh = pop!().get_float() ;
+                    push!(Value::float(lh $binop rh));
                 }
             };
         }
@@ -161,10 +156,10 @@ impl<'a> VM<'a> {
         macro_rules! CPIPOP {
             ($binop:tt) => {
                 {
-                    let rt = self.pop().get_integer() ;
-                    let lt = self.pop().get_integer() ;
+                    let rt = pop!().get_integer() ;
+                    let lt = pop!().get_integer() ;
                     let val = Value::logical(lt $binop rt) ;
-                    self.push(val);
+                    push!(val);
                 }
             };
         }
@@ -172,10 +167,10 @@ impl<'a> VM<'a> {
         macro_rules! CPFPOP {
             ($binop:tt) => {
                 {
-                    let rt = self.pop().get_float() ;
-                    let lt = self.pop().get_float() ;
+                    let rt = pop!().get_float() ;
+                    let lt = pop!().get_float() ;
                     let val = Value::logical(lt $binop rt) ;
-                    self.push(val);
+                    push!(val);
                 }
             };
         }
@@ -183,46 +178,91 @@ impl<'a> VM<'a> {
         macro_rules! CPSPOP {
             ($binop:tt) => {
                 {
-                    let rt = self.pop().get_string();
-                    let lt = self.pop().get_string() ;
+                    let rt = pop!().get_string();
+                    let lt = pop!().get_string() ;
                     let val = Value::logical(lt $binop rt) ;
-                    self.push(val);
+                    push!(val);
                 }
+            };
+        }
+
+        macro_rules! get_function {
+            ($loc:expr) => {
+                {
+                    let f  = frames[fPtr]
+                        .chunk
+                        .functionStore[$loc as usize]
+                        .clone() ;
+                    f.get_function().clone()
+                }
+            };
+        }
+
+        macro_rules! setArrayElement {
+            ($datatype:expr, $slot:expr) => {
+                let mut array = frames[fPtr].data[$slot+8092].clone();
+
+                let index = pop!().get_integer() as usize;
+                let value = pop!();
+
+                let ar = array.get_array_mut();
+
+                let arrayDataType = ar.getDataType();
+                if arrayDataType != $datatype {
+                    panic!("Incompatible data types for array") ;
+                }
+
+                ar.put(index, value);
+                frames[fPtr].data[$slot+8092] = array;
             };
         }
 
         loop {
 
-            self.debug();
+            /*** Debug ***/
+            print!("          ");
+            for slot in 0..frames[fPtr].slotPtr {
+
+                let val = frames[fPtr].data[slot].clone() ;
+                if val.isEmpty() {
+                    continue;
+                }
+
+                print!("[ ");
+                printValue(val);
+                print!(" ]");
+            }
+            println!();
+            disassembleInstruction(&frames[fPtr].chunk, *frames[fPtr].ip) ;
+            /*** Debug ***/
+
             let instruction:OpCode = READ_BYTE!().into();
 
             match instruction {
-                OP_RETURN => {
-                    //self.pop();
-                    return INTERPRET_OK
-                },
+
                 OP_PUSH => {
                     let value = READ_OPERAND!() as i64;
-                    self.push(Value::integer(value)) ;
+                    push!(Value::integer(value)) ;
                 },
                 OP_CONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
-                    let constant = self.chunk.constants.values[constIndex].clone() ;
-                    self.push(constant) ;
+
+                    let constant = frames[fPtr].chunk.constants.values[constIndex].clone() ;
+                    push!(constant) ;
                 },
                 OP_SCONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
                     // This is the pointer to the string in the heapValue array
-                    let stringValue = self.chunk.constants.values[constIndex].clone() ;
-                    self.push(stringValue) ;
+                    let stringValue = frames[fPtr].chunk.constants.values[constIndex].clone() ;
+                    push!(stringValue) ;
                 },
-                OP_NIL => { self.push(Value::nil)},
-                OP_TRUE => { self.push(Value::logical(true))},
-                OP_FALSE => { self.push(Value::logical(false))},
+                OP_NIL => { push!(Value::nil);},
+                OP_TRUE => { push!(Value::logical(true));},
+                OP_FALSE => { push!(Value::logical(false));},
                 OP_EQUAL => {
-                    let a = self.pop() ;
-                    let b = self.pop() ;
-                    self.push(Value::logical(a==b));
+                    let a = pop!() ;
+                    let b = pop!() ;
+                    push!(Value::logical(a==b));
                 },
                 OP_GREATER => {CPIPOP!(>)},
                 OP_LESS => {CPIPOP!(<)},
@@ -264,142 +304,143 @@ impl<'a> VM<'a> {
                 OP_SLTEQ => {CPSPOP!(<=)},
 
                 OP_NOT => {
-                  let value = !self.pop().get_bool();
-                  self.push(Value::logical(value)) ;
+                    let value = !pop!().get_bool();
+                    push!(Value::logical(value)) ;
                 },
 
                 OP_INEGATE => {
-                    let value = -self.pop().get_integer();
-                    self.push(Value::integer(value));
+                    let value = -pop!().get_integer();
+                    push!(Value::integer(value));
                 },
 
                 OP_FNEGATE => {
-                    let value = -self.pop().get_float();
-                    self.push(Value::float(value));
+                    let value = -pop!().get_float();
+                    push!(Value::float(value));
                 }
 
                 OP_LOADVAR => {
                     let slot = READ_OPERAND!() as usize;
-                    self.push(self.stack[slot].clone()) ;
+                    let val = frames[fPtr].data[slot+8092].clone() ;
+                    push!(val) ;
                 }
 
                 OP_SETVAR => {
                     let slot = READ_OPERAND!() as usize;
-                    self.stack[slot] = self.pop() ;
+                    frames[fPtr].data[slot+8092] = pop!() ;
                  }
 
                 OP_PRINT => {
-                    let data = self.pop() ;
+                    let data = pop!() ;
                     println!("{}", data) ;
                 },
 
                 OP_SPRINT => {
-                    let s = self.pop().get_string();
+                    let s = pop!().get_string();
                     println!("{}", s) ;
                 },
 
                 OP_JUMP_IF_FALSE => {
 
-                    let logicalResult = self.pop().get_bool() ;
+                    let logicalResult = pop!().get_bool() ;
                     let jumpto = READ_OPERAND!() as usize;
 
                     if !logicalResult {
-                        self.ip += jumpto ;
+                        *frames[fPtr].ip += jumpto ;
                     }
                 },
 
                 OP_JUMP_IF_FALSE_NOPOP => {
 
-                    let logicalResult = self.peek(0).get_bool() ;
+                    let logicalResult = peek!(0).get_bool() ;
                     let jumpto = READ_OPERAND!() as usize;
 
                     if !logicalResult {
-                        self.ip += jumpto ;
+                        *frames[fPtr].ip += jumpto ;
                     }
 
                 },
 
                 OP_JUMP =>{
-                    self.ip += READ_OPERAND!() as usize;
+                    *frames[fPtr].ip += READ_OPERAND!() as usize;
                 },
 
                 OP_LOOP => {
-                    self.ip -= READ_OPERAND!() as usize
+                    *frames[fPtr].ip -= READ_OPERAND!() as usize
                 },
 
                 OP_NOP => {},
                 OP_POP => {
-                    self.pop();
+                    pop!();
                 },
 
                 OP_IGETAELEMENT
                 | OP_SGETAELEMENT
                 | OP_BGETAELEMENT
                 | OP_FGETAELEMENT => {
-                    let index = self.pop().get_integer() as usize;
+                    let index = pop!().get_integer() as usize;
 
                     let slot = READ_OPERAND!() as usize;
-                    let array = self.stack[slot].clone().get_array() ;
+                    let array = frames[fPtr].data[slot+8092].clone().get_array() ;
 
-                    self.push(array.get(index));
+                    push!(array.get(index));
 
                 },
 
                 OP_SETHELEMENT => {
 
                     let slot = READ_OPERAND!() as usize;
-                    let mut hash = self.stack[slot].clone() ;
+                    let mut hash = frames[fPtr].data[slot].clone() ;
 
-                    let key = HKey::new(self.pop());
-                    let value = self.pop() ;
+                    let key = HKey::new(pop!());
+                    let value = pop!() ;
 
                     let h = hash.get_dict_mut();
 
                     h.insert(key, value);
-                    self.stack[slot] = hash ;
+                    frames[fPtr].data[slot] = hash ;
                 },
 
                 OP_ISETAELEMENT => {
-                    let slot = READ_OPERAND!() as usize;
-                    self.setArrayElement(DataType::Integer, slot);
+                    let index = READ_OPERAND!() as usize;
+                    setArrayElement!(DataType::Integer, index);
                 },
                 OP_SSETAELEMENT => {
                     let slot = READ_OPERAND!() as usize;
-                    self.setArrayElement(DataType::String, slot);
+                    setArrayElement!(DataType::String, slot);
                 },
                 OP_BSETAELEMENT => {
                     let slot = READ_OPERAND!() as usize;
-                    self.setArrayElement(DataType::Bool, slot);
+                    setArrayElement!(DataType::Bool, slot);
                 },
                 OP_FSETAELEMENT => {
                     let slot = READ_OPERAND!() as usize;
-                    self.setArrayElement(DataType::Float, slot);
+                    setArrayElement!(DataType::Float, slot);
                 },
 
                 OP_NEWARRAY => {
 
-                    let datatype = DataType::from_operand(self.pop().get_integer() as u16) ;
+                    let datatype = DataType::from_operand(pop!().get_integer() as u16) ;
 
-                    let arity = self.pop().get_integer() as usize;
+                    let arity = pop!().get_integer() as usize;
                     let mut array = Array::new(arity, datatype) ;
 
                     for _ in 0..arity {
-                        array.insert(self.pop().clone()) ;
+                        array.insert(pop!().clone()) ;
                     }
 
-                    self.push(Value::array(array));
+                    push!(Value::array(array));
 
                 }
 
                 OP_GETHELEMENT => {
-                    let key = self.pop().clone();
+                    let key = pop!().clone();
 
                     let k = HKey::new(key) ;
 
                     let slot = READ_OPERAND!() as usize;
-                    let dict = self.stack[slot].clone().get_dict() ;
+                    let dict = frames[fPtr].data[slot].clone().get_dict() ;
                     let value = dict.get(k).unwrap_or(&Value::nil).clone();
-                    self.push(value);
+                    push!(value);
 
                 },
 
@@ -407,20 +448,31 @@ impl<'a> VM<'a> {
                     let mut dict = Value::hash(Dict::new());
                     let h = dict.get_dict_mut();
 
-                    let arity = self.pop().get_integer() as usize;
+                    let arity = pop!().get_integer() as usize;
 
                     for _ in 0..arity {
 
-                        let val = self.pop().clone();
-                        let key = self.pop().clone();
+                        let val = pop!().clone();
+                        let key = pop!().clone();
 
                         let k = HKey::new(key) ;
 
                         h.insert(k,val) ;
                     }
 
-                    self.push(dict) ;
-                }
+                    push!(dict) ;
+                },
+                OP_RETURN => {
+                    frames.pop();
+                    return INTERPRET_OK
+                },
+                OP_CALL => {
+
+                    let args = READ_OPERAND!() ;
+
+                    let fnc = get_function!(args) ;
+
+                },
 
                 _ => {return INTERPRET_OK}
             }
@@ -429,22 +481,5 @@ impl<'a> VM<'a> {
 
     }
 
-    fn setArrayElement(&mut self, datatype: DataType, slot: usize) {
-
-        let mut array = self.stack[slot].clone();
-
-        let index = self.pop().get_integer() as usize;
-        let value = self.pop();
-
-        let ar = array.get_array_mut();
-
-        let arrayDataType = ar.getDataType();
-        if arrayDataType != datatype {
-            panic!("Incompatible data types for array") ;
-        }
-
-        ar.put(index, value);
-        self.stack[slot] = array;
-    }
 }
 

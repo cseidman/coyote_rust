@@ -1,5 +1,5 @@
 use crate::chunk::OpCode::*;
-use crate::value::{ValueArray, writeValueArray, Value};
+use crate::value::{ValueArray, writeValueArray, Value, Function};
 use crate::ast::JumpType;
 use crate::symbol::{SymbolTable};
 use std::collections::HashMap;
@@ -77,6 +77,8 @@ pub enum OpCode {
     OP_GETHELEMENT,
     OP_SETHELEMENT,
 
+    OP_CALL,
+
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -153,79 +155,25 @@ impl From<u8> for OpCode {
             62 => OP_GETHELEMENT,
             63 => OP_SETHELEMENT,
 
+            64 => OP_CALL,
+
             _   => OP_UNKNOWN,
         }
     }
 }
 
-pub struct Location {
-    pub locations: HashMap<String, Vec<usize>>
-}
-
-impl Location {
-
-    pub fn new() -> Self {
-        Self {
-            locations: HashMap::new()
-        }
-    }
-
-    pub fn addLocation(&mut self, tag: &str, location: usize) -> usize {
-
-        // Initilize a new vector for this tag if it's the
-        // first time we use it
-        if ! self.locations.contains_key(tag) {
-            self.locations.insert(tag.to_string(), Vec::new()) ;
-        }
-
-        self.locations.get_mut(tag).unwrap().push(location) ;
-        location
-
-    }
-
-    pub fn peekLocation(&mut self, tag: &str) -> usize {
-
-        if ! self.locations.contains_key(tag) {
-            panic!("Location tag {} does not exist", tag) ;
-        }
-
-        self.locations.get_mut(tag)
-            .unwrap()
-            .last()
-            .unwrap()
-            .clone()
-
-    }
-
-    pub fn popLocation(&mut self, tag: &str) -> usize {
-
-        if ! self.locations.contains_key(tag) {
-            panic!("Location tag {} does not exist", tag) ;
-        }
-
-        self.locations.get_mut(tag)
-            .unwrap()
-            .pop()
-            .unwrap()
-
-    }
-
-    pub fn hasKey(&self, tag: &str) -> bool {
-        self.locations.contains_key(tag)
-    }
-
-}
-
+#[derive(Debug, Clone, PartialOrd)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
     pub lines: Vec<usize>,
-    pub symbTable: SymbolTable,
+    pub functionStore: Vec<Value>
+}
 
-    pub comments: HashMap<usize, String>,
-
-    pub locations: Vec<Location>,
-    pub locationPtr: usize
+impl PartialEq for Chunk {
+    fn eq(&self, other: &Self) -> bool {
+       false
+    }
 }
 
 impl Chunk {
@@ -233,76 +181,11 @@ impl Chunk {
         Chunk{
             code: Vec::new(),
             constants: ValueArray::new(),
-            symbTable: SymbolTable::new(),
             lines: Vec::new(),
-
-            comments: HashMap::new(),
-
-            locations: Vec::new(),
-            locationPtr: 0
+            functionStore: Vec::new(),
         }
     }
 
-    pub fn addComment(&mut self, comment: String) {
-        let loc = currentLocation(self) ;
-        self.comments.insert(loc, comment) ;
-    }
-
-    pub fn getComment(&self, location: usize) -> String {
-        let val = self.comments.get(&location) ;
-        if val.is_none() {
-            return ":".to_string() ;
-        }
-        val.unwrap().clone()
-    }
-
-    pub fn pushScope(&mut self) {
-        self.locations.push(Location::new()) ;
-        self.locationPtr+=1
-    }
-
-    pub fn popScope(&mut self) {
-        self.locations.pop() ;
-        self.locationPtr-=1 ;
-    }
-
-    pub fn backpatchInner(&mut self, tag: &str) {
-
-        let ptr = self.locationPtr-1 ;
-        if self.locations[ptr].locations.contains_key(tag) {
-            for b in self.locations[ptr].locations[tag].clone() {
-                backPatch(self, b);
-            }
-        }
-
-    }
-
-    pub fn addLocation(&mut self, tag: &str) -> usize {
-        let location = currentLocation(self) ;
-        self.addSpecificLocation(tag, location)
-    }
-
-    pub fn addSpecificLocation(&mut self, tag: &str, location: usize) -> usize {
-
-        let ptr = self.locationPtr-1 ;
-
-        self.locations[ptr].addLocation(tag, location);
-        location
-    }
-
-    pub fn peekLocation(&mut self, tag: &str) -> usize {
-
-        let ptr = self.locationPtr-1 ;
-        self.locations[ptr].peekLocation(tag)
-
-    }
-
-    pub fn popLocation(&mut self, tag: &str) -> usize {
-
-        let ptr = self.locationPtr-1 ;
-        self.locations[ptr].popLocation(tag)
-
-    }
 
 }
 

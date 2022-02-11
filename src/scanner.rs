@@ -1,7 +1,13 @@
-use std::rc::{Rc};
 
-#[derive(PartialEq)]
-#[derive(Clone, Copy, Debug, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
+pub enum TokenData {
+    STRING,
+    INTEGER,
+    FLOAT,
+    BOOL,
+}
+
+#[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
 pub enum TokenType {
     // Single-character tokens.
     TOKEN_LEFT_PAREN, TOKEN_RIGHT_PAREN,
@@ -21,13 +27,14 @@ pub enum TokenType {
     // Literals.
     TOKEN_IDENTIFIER ,
 
-    // Native types
     TOKEN_STRING ,
     TOKEN_BOOL ,
     TOKEN_INTEGER ,
     TOKEN_FLOAT ,
 
     TOKEN_NIL,
+
+    TOKEN_DATA_TYPE(TokenData),
 
     // Keywords.
     TOKEN_AND, TOKEN_CLASS, TOKEN_ELSE, TOKEN_FALSE,
@@ -380,7 +387,7 @@ impl Scanner {
             "else"      => TOKEN_ELSE,
             "false"     => TOKEN_FALSE,
             "for"       => TOKEN_FOR,
-            "fun"       => TOKEN_FUN,
+            "func"      => TOKEN_FUN,
             "if"        => TOKEN_IF,
             "nil"       => TOKEN_NIL,
             "or"        => TOKEN_OR,
@@ -394,6 +401,12 @@ impl Scanner {
             "break"     => TOKEN_BREAK,
             "continue"  => TOKEN_CONTINUE,
             "private"   => TOKEN_PRIVATE,
+
+            "string"    => TOKEN_DATA_TYPE(TokenData::STRING),
+            "integer"   => TOKEN_DATA_TYPE(TokenData::INTEGER),
+            "float"     => TOKEN_DATA_TYPE(TokenData::FLOAT),
+            "bool"      => TOKEN_DATA_TYPE(TokenData::BOOL),
+
             _           => TOKEN_IDENTIFIER ,
         }
 

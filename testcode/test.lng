@@ -1,5 +1,6 @@
-class testy {
-    name: String,
-    age: Integer,
-    private ssn: String
+func test() {
+    print "Hey!"
 }
+
+test()
+

@@ -1,6 +1,6 @@
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation, Location};
-use crate::value::{Value, Property, Class, Visibilty};
+use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
+use crate::value::{Value, Property, Class, Visibilty, Function};
 use crate::scanner::*;
 use TokenType::* ;
 use std::io::{stderr, Write} ;
@@ -71,6 +71,65 @@ impl Rule {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Location {
+    pub locations: HashMap<String, Vec<usize>>
+}
+
+impl Location {
+
+    pub fn new() -> Self {
+        Self {
+            locations: HashMap::new()
+        }
+    }
+
+    pub fn addLocation(&mut self, tag: &str, location: usize) -> usize {
+
+        // Initilize a new vector for this tag if it's the
+        // first time we use it
+        if ! self.locations.contains_key(tag) {
+            self.locations.insert(tag.to_string(), Vec::new()) ;
+        }
+
+        self.locations.get_mut(tag).unwrap().push(location) ;
+        location
+
+    }
+
+    pub fn peekLocation(&mut self, tag: &str) -> usize {
+
+        if ! self.locations.contains_key(tag) {
+            panic!("Location tag {} does not exist", tag) ;
+        }
+
+        self.locations.get_mut(tag)
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone()
+
+    }
+
+    pub fn popLocation(&mut self, tag: &str) -> usize {
+
+        if ! self.locations.contains_key(tag) {
+            panic!("Location tag {} does not exist", tag) ;
+        }
+
+        self.locations.get_mut(tag)
+            .unwrap()
+            .pop()
+            .unwrap()
+
+    }
+
+    pub fn hasKey(&self, tag: &str) -> bool {
+        self.locations.contains_key(tag)
+    }
+
+}
+
 pub struct Parser {
     tokens: Vec<Token>,
     token_ptr: usize,
@@ -120,18 +179,25 @@ macro_rules! currentChunk {
 }
 
 pub struct Compiler<'a>  {
-    pub chunk: &'a mut Chunk,
+    chunk: &'a mut Chunk,
     scanner: Scanner ,
     parser: Parser,
-    pub nodes: Vec<Node>,
+    nodes: Vec<Node>,
 
-    pub localCount: usize,
-    pub scopeDepth: usize,
+    localCount: usize,
+    scopeDepth: usize,
 
-    pub jumpifFalse: Vec<usize>,
-    pub jump: Vec<usize>,
-    pub breakjump: Vec<usize>,
-    pub loopDepth: usize,
+    jumpifFalse: Vec<usize>,
+    jump: Vec<usize>,
+    breakjump: Vec<usize>,
+    loopDepth: usize,
+
+    symbTable: SymbolTable,
+
+    locations: Vec<Location>,
+    locationPtr: usize,
+
+
 
 }
 
@@ -150,6 +216,10 @@ impl<'a> Compiler<'a> {
             jump: Vec::new(),
             breakjump: Vec::new(),
             loopDepth: 0,
+            symbTable: SymbolTable::new(),
+
+            locations: Vec::new(),
+            locationPtr: 0,
 
         }
     }
@@ -160,16 +230,40 @@ impl<'a> Compiler<'a> {
 
     // Symbol table operations
     pub fn addVariable(&mut self, varname: String, datatype: DataType) -> usize {
-        self.chunk.symbTable.addSymbol(varname, datatype)
+        self.symbTable.addSymbol(varname, datatype)
     }
 
     pub fn getVariable(&mut self, varname: String) -> Symbol {
-        let symb = self.chunk.symbTable.getSymbol(varname.clone()) ;
+        let symb = self.symbTable.getSymbol(varname.clone()) ;
         if let Ok(..) = symb {
             symb.unwrap()
         } else {
             panic!("Cannot find variable {}", varname) ;
         }
+    }
+
+    pub fn getFunction(&self, funcName: String) -> Result<usize, String> {
+        let mut loc = 0 ;
+        for f in self.chunk.functionStore.clone() {
+            let fnc = f.get_function() ;
+            if fnc.name == funcName {
+                return Ok(loc)
+            }
+            loc+=1 ;
+        }
+        let msg = format!("Function '{}' not found", funcName) ;
+        Err(msg)
+    }
+
+    pub fn addFunction(&mut self, f: Function) {
+        // Check that this function doesn't already exist
+        if self.getFunction(f.name.clone()).is_ok()  {
+            let msg = format!("Function with name: '{}' already exists", f.name) ;
+            self.errorAtCurrent(&msg) ;
+        } else {
+            self.chunk.functionStore.push(Value::function(f)) ;
+        }
+
     }
 
     fn nodePush(&mut self, node: Node) {
@@ -716,7 +810,7 @@ impl<'a> Compiler<'a> {
 
     fn whileStatement(&mut self) {
 
-        self.chunk.pushScope() ;
+        self.pushScope() ;
         let mut conditional: Vec<Node> = Vec::new() ;
         let line = self.parser.previous().line ;
         // Signals the beginning of the while
@@ -761,7 +855,7 @@ impl<'a> Compiler<'a> {
             statements: nodes
         } ;
 
-        self.chunk.popScope() ;
+        self.popScope() ;
         self.nodePush(whileNode) ;
 
     }
@@ -782,6 +876,60 @@ impl<'a> Compiler<'a> {
         self.nodePush(Node::EndBlock);
     }
 
+    fn funcDeclaration(&mut self) {
+
+        let line = self.parser.previous().line ;
+
+        // We consumed 'func' already. Now we need to get the name of the
+        // function itself
+        self.consume(TOKEN_IDENTIFIER, "Expect a function name after 'func'") ;
+        let funcName = self.parser.previous().name ;
+
+        let mut arity: u16 = 0 ;
+        self.consume(TOKEN_LEFT_PAREN, "Expect a '(' after the function name") ;
+        while ! self.t_match(TOKEN_RIGHT_PAREN) {
+            // Count the number of parameters
+            arity+=1 ;
+        }
+
+        // See if there is a return type
+        // Assume it's 'none' if none of the others match
+        let mut returnType = DataType::None ;
+
+        if self.t_match(TOKEN_DATA_TYPE(TokenData::STRING)) {
+            returnType = DataType::String
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::INTEGER)) {
+            returnType = DataType::Integer
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::FLOAT)) {
+            returnType = DataType::Float
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::BOOL)) {
+            returnType = DataType::Bool
+        }  else if self.t_match(TOKEN_IDENTIFIER) {
+            // This means we're referring to a type
+        }
+
+        // Now grab the statements inside the function
+        let mut statements = Vec::new() ;
+
+        // This needs to begin with a brace
+        self.consume(TOKEN_LEFT_BRACE, "Expect a '{' after the function header") ;
+        while ! self.t_match(TOKEN_RIGHT_BRACE) {
+            self.statement() ;
+            let statement = self.nodes.pop().unwrap() ;
+            statements.insert(0, statement) ;
+        }
+
+        let funcNode = Node::function {
+            line,
+            name: funcName,
+            arity,
+            statements,
+            returnType
+        };
+
+        self.nodePush(funcNode) ;
+    }
+
     fn statement(&mut self) {
         if self.t_match(TOKEN_PRINT) {
             self.printStatement();
@@ -799,6 +947,16 @@ impl<'a> Compiler<'a> {
             self.continueStatement();
         } else {
             self.expression();
+        }
+    }
+
+    fn declaration(&mut self) {
+        if self.t_match(TOKEN_VAR) {
+            self.varDeclaration();
+        } else if self.t_match(TOKEN_FUN) {
+            self.funcDeclaration() ;
+        } else {
+            self.statement();
         }
     }
 
@@ -928,16 +1086,25 @@ impl<'a> Compiler<'a> {
         // This is the variable name we just encountered
         let varname = self.parser.previous().name ;
 
+        // Check if it's a function
+        if self.t_match(TOKEN_LEFT_PAREN) {
+            self.call(varname) ;
+            return ;
+        }
+
+        // Check if it's an array
         if self.t_match(TOKEN_LEFT_BRACKET) {
             self.namedArrayElement(varname) ;
             return
         }
 
+        // Check if it's a hash
         if self.t_match(TOKEN_AT_BRACKET) {
             self.namedHashKey(varname) ;
             return
         }
 
+        // If we got here, then it means it's a variable
         self.namedSingleVariable(varname) ;
     }
 
@@ -985,12 +1152,26 @@ impl<'a> Compiler<'a> {
         self.namedVariable() ;
     }
 
-    fn declaration(&mut self) {
-        if self.t_match(TOKEN_VAR) {
-            self.varDeclaration() ;
-        } else {
-            self.statement();
+    pub fn call(&mut self, funcName: String) {
+
+        let line = self.parser.previous().line ;
+        let mut params: Vec<Node> = Vec::new() ;
+
+        let mut arity = 0 ;
+        while !self.t_match(TOKEN_RIGHT_PAREN) {
+            arity+=1 ;
+            self.block() ;
+            params.insert(0, self.nodes.pop().unwrap()) ;
         }
+
+        let fnode = Node::call {
+            line,
+            arity,
+            func: funcName,
+            parameters: params
+        };
+
+        self.nodePush(fnode) ;
     }
 
     pub fn view_tree(&self) {
@@ -1036,7 +1217,7 @@ impl<'a> Compiler<'a> {
 
         // Jump to the end of the parent loop
         writeChunk(self.chunk, OP_JUMP as u8, 0);
-        self.chunk.addLocation("innerbreak");
+        self.addLocation("innerbreak");
         writeu16Chunk(self.chunk, 9999_u16, 0);
     }
 
@@ -1047,12 +1228,61 @@ impl<'a> Compiler<'a> {
 
         writeChunk(self.chunk, OP_LOOP as u8, 0);
         let loc = currentLocation(self.chunk) ;
-        let inner = self.chunk.popLocation("innercontinue") ;
+        let inner = self.popLocation("innercontinue") ;
 
         let continueTo = loc - inner+2;
         writeu16Chunk(self.chunk, continueTo as u16, 0);
     }
 
+    // Location management for control of flow statements
+
+    pub fn pushScope(&mut self) {
+        self.locations.push(Location::new()) ;
+        self.locationPtr+=1
+    }
+
+    pub fn popScope(&mut self) {
+        self.locations.pop() ;
+        self.locationPtr-=1 ;
+    }
+
+    pub fn backpatchInner(&mut self, tag: &str) {
+        let ptr = self.locationPtr-1 ;
+        if self.locations[ptr].locations.contains_key(tag) {
+            for b in self.locations[ptr].locations[tag].clone() {
+                backPatch(self.chunk, b);
+            }
+        }
+    }
+
+    pub fn addLocation(&mut self, tag: &str) -> usize {
+        let location = currentLocation(self.chunk) ;
+        self.addSpecificLocation(tag, location)
+    }
+
+    pub fn addSpecificLocation(&mut self, tag: &str, location: usize) -> usize {
+
+        let ptr = self.locationPtr-1 ;
+
+        self.locations[ptr].addLocation(tag, location);
+        location
+    }
+
+    pub fn peekLocation(&mut self, tag: &str) -> usize {
+
+        let ptr = self.locationPtr-1 ;
+        self.locations[ptr].peekLocation(tag)
+
+    }
+
+    pub fn popLocation(&mut self, tag: &str) -> usize {
+
+        let ptr = self.locationPtr-1 ;
+        self.locations[ptr].popLocation(tag)
+
+    }
+
+    // Walk tree
     pub fn walkTree(&mut self, node: Node) -> DataType {
 
         macro_rules! writeOp {
@@ -1100,7 +1330,7 @@ impl<'a> Compiler<'a> {
                 keys,
                 values
             } => {
-                
+
                 let mut elements= 0 ;
                 for k in keys {
                     let v = values[elements].clone();
@@ -1129,7 +1359,6 @@ impl<'a> Compiler<'a> {
                 let keyType = self.walkTree(*key, ) ;
 
                 writeOp!(OP_GETHELEMENT, line);
-                self.chunk.addComment(format!("Load hash variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
                 symbol.datatype
@@ -1158,7 +1387,6 @@ impl<'a> Compiler<'a> {
                 // Todo: Check that the variable type matches the value type
 
                 writeOp!(OP_SETHELEMENT, line);
-                self.chunk.addComment(format!("Store hash {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
                 valueDataType
@@ -1301,7 +1529,6 @@ impl<'a> Compiler<'a> {
                 let loc = self.addVariable(name.clone(), datatype) ;
 
                 writeOp!(OP_SETVAR, line);
-                self.chunk.addComment(format!("Declare and store variable {}", name)) ;
                 writeOperand!(loc as u16);
 
                 datatype
@@ -1363,7 +1590,6 @@ impl<'a> Compiler<'a> {
                 };
 
                 writeOp!(opcode, line);
-                self.chunk.addComment(format!("Store array {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
                 valueDataType
@@ -1398,7 +1624,6 @@ impl<'a> Compiler<'a> {
 
 
                 writeOp!(opcode, line);
-                self.chunk.addComment(format!("Load array variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
                 elementType
@@ -1427,7 +1652,6 @@ impl<'a> Compiler<'a> {
                 }
 
                 writeOp!(OP_SETVAR, line);
-                self.chunk.addComment(format!("Store variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
                 varType
@@ -1440,19 +1664,18 @@ impl<'a> Compiler<'a> {
                 let symbol = self.getVariable(name.clone()) ;
 
                 writeOp!(OP_LOADVAR, line);
-                self.chunk.addComment(format!("Load variable {}", name)) ;
                 writeOperand!(symbol.location as u16);
 
                 symbol.datatype
             },
 
             Node::Block => {
-                self.chunk.symbTable.pushLevel();
+                self.symbTable.pushLevel();
                 DataType::None
             },
 
             Node::EndBlock => {
-                self.chunk.symbTable.popLevel();
+                self.symbTable.popLevel();
                 DataType::None
             },
 
@@ -1612,10 +1835,10 @@ impl<'a> Compiler<'a> {
             } => {
 
                 self.loopDepth+=1 ;
-                self.chunk.pushScope() ;
+                self.pushScope() ;
 
                 let beginLocation = currentLocation(self.chunk);
-                self.chunk.addLocation("innercontinue") ;
+                self.addLocation("innercontinue") ;
 
                 // Collect all the logical condition expressions
                 for e in condition {
@@ -1637,7 +1860,7 @@ impl<'a> Compiler<'a> {
 
                     if n == Node::Break {
                         writeOp!(OP_JUMP, 0) ;
-                        self.chunk.addLocation("break");
+                        self.addLocation("break");
                         writeOperand!(9999_u16 as u16) ;
                     }
 
@@ -1658,13 +1881,13 @@ impl<'a> Compiler<'a> {
                 writeOperand!(backJumpBy as u16) ;
 
                 backPatch(self.chunk, jumpFromLocation) ;
-                self.chunk.backpatchInner("innerbreak") ;
-                self.chunk.backpatchInner("break") ;
+                self.backpatchInner("innerbreak") ;
+                self.backpatchInner("break") ;
 
                 writeOp!(OP_POP, 0) ;
 
                 self.loopDepth-=1 ;
-                self.chunk.popScope() ;
+                self.popScope() ;
                 DataType::None
             },
 
@@ -1677,6 +1900,72 @@ impl<'a> Compiler<'a> {
                 expr
             } => {
                 DataType::Bool
+            },
+
+            Node::call {
+                line,
+                arity,
+                func,
+                parameters,
+            } => {
+
+                let loc = self.getFunction(func).unwrap() ;
+                let f = self.chunk.functionStore[loc].clone().get_function() ;
+
+                for n in parameters {
+                    self.walkTree(n) ;
+                }
+
+                // If there were parameters, they should be
+                // on the stack now
+                writeOp!(OP_CALL, line) ;
+                writeOperand!(loc as u16) ;
+
+                f.returnType
+            },
+
+            Node::function {
+                line,
+                name,
+                arity,
+                statements,
+                returnType
+            } => {
+
+                // Insert an unfinished function now so that
+                // the following statements see a reference to
+                // an existing function when it comes time to resolve the
+                // name for recursion
+                let mut func = Function::new(
+                    name,
+                    arity,
+                    Chunk::new(),
+                    returnType
+                ) ;
+
+                self.addFunction(func.clone()) ;
+                let location = self.chunk.functionStore.len()-1 ;
+
+                // Stash the current chunk
+                let prev = self.chunk.clone() ;
+
+                // Push a new chunk in the compiler
+                *self.chunk = Chunk::new() ;
+
+                // These statements go in the new chunk
+                for n in statements {
+                    self.walkTree(n) ;
+                }
+
+                // Now that the instructions are there, we replace it
+                // with the completed function
+                func.chunk = self.chunk.clone() ;
+
+                // Put the old chunk back
+                *self.chunk = prev ;
+                self.chunk.functionStore[location] = Value::function(func.clone()) ;
+
+                returnType
             }
 
         }

@@ -18,8 +18,7 @@ fn valueInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
 fn varInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     let offset = offset+1 ;
     let constant = BytesToU16(&chunk.code[offset..offset+2]) ;
-    print!("{:16} {} ", name, constant);
-    println!(" : {}", chunk.getComment(offset-1)) ;
+    println!("{:16} {} ", name, constant);
     offset + 2
 }
 
@@ -63,7 +62,7 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
 
     print!("{:04} ", offset) ;
     if offset > 0 &&
-        (chunk.lines[offset] == chunk.lines[offset-3] ||
+        (//chunk.lines[offset] == chunk.lines[offset-3] ||
         chunk.lines[offset] == chunk.lines[offset-1])
     {
         print!("   | ") ;
@@ -119,7 +118,8 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_JUMP => jumpBackInstruction(display!(instruction),  chunk, offset),
          OpCode::OP_JUMP_IF_FALSE
         | OpCode::OP_JUMP_IF_FALSE_NOPOP => jumpFowardInstruction(display!(instruction),  chunk, offset),
-        OpCode::OP_PUSH=> valueInstruction(display!(instruction),  chunk, offset),
+        OpCode::OP_CALL
+        | OpCode::OP_PUSH=> valueInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_LOADVAR
         | OpCode::OP_IGETAELEMENT
         | OpCode::OP_ISETAELEMENT

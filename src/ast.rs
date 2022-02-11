@@ -47,6 +47,7 @@ pub enum DataType {
     Dict,
     Object,
     Nil,
+    Function,
     None
 }
 
@@ -65,6 +66,7 @@ impl DataType {
             DataType::Dict => 90,
             DataType::Object => 100,
             DataType::Nil => 110,
+            DataType::Function => 120,
             DataType::None => 0
         }
 
@@ -83,6 +85,7 @@ impl DataType {
             90 => DataType::Dict,
             100 => DataType::Object,
             110 => DataType::Nil,
+            120 => DataType::Function,
             0 => DataType::None,
             _ => DataType::None,
         }
@@ -256,7 +259,19 @@ pub enum Node {
     While,
     Break,
     Continue,
-
+    function {
+        line: usize,
+        name: String,
+        arity: u16,
+        statements: Vec<Node>,
+        returnType: DataType
+    },
+    call {
+        line: usize,
+        arity: u16,
+        func: String,
+        parameters: Vec<Node>
+    }
 }
 
 impl Node {

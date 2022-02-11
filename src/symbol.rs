@@ -16,7 +16,7 @@ pub struct ClassSymbol {
 }
 
 // Symbol tables for variables
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Symbol {
     name: String,
     level: usize,
@@ -24,7 +24,7 @@ pub struct Symbol {
     pub datatype: DataType,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SymbolLevel {
     symbols: HashMap<String, Symbol>,
     level: usize,
@@ -40,7 +40,7 @@ impl SymbolLevel {
         }
     }
 }
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SymbolTable {
     symbolLevel: Vec<SymbolLevel>,
     level: usize,
@@ -51,7 +51,7 @@ impl SymbolTable {
 
     pub fn new() -> Self {
 
-        let mut t= SymbolTable {
+        let mut t = SymbolTable {
            symbolLevel: Vec::new(),
            level: 0,
            nextSlot: 0
