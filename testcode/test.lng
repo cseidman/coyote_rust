@@ -1,7 +1,10 @@
-func test() {
-    print "Hey!"
+test2()
+print "Yo"
+
+func test2() {
+    test()
 }
 
-test()
-
-print "Yo"
+func test() {
+    print "Heigh"
+}

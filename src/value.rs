@@ -238,6 +238,7 @@ impl PartialEq for Class {
 #[derive(Debug, Clone, PartialOrd)]
 pub struct Function {
     pub name: String,
+    pub isStub: bool,
     pub arity: u16,
     pub chunk: Chunk,
     pub returnType: DataType
@@ -253,6 +254,7 @@ impl Function {
     pub fn new(name: String, arity: u16, chunk: Chunk, returnType: DataType) -> Self {
         Self {
             name,
+            isStub: false,
             arity,
             chunk,
             returnType

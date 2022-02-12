@@ -197,13 +197,13 @@ pub struct Compiler<'a>  {
     locations: Vec<Location>,
     locationPtr: usize,
 
-
+    functionStore: &'a mut Vec<Function>
 
 }
 
 impl<'a> Compiler<'a> {
 
-    pub fn new(source: String, chunk: &'a mut Chunk) -> Self {
+    pub fn new(source: String, chunk: &'a mut Chunk, funcStore: &'a mut Vec<Function>) -> Self {
 
         Compiler {
             chunk,
@@ -220,6 +220,7 @@ impl<'a> Compiler<'a> {
 
             locations: Vec::new(),
             locationPtr: 0,
+            functionStore: funcStore
 
         }
     }
@@ -244,9 +245,9 @@ impl<'a> Compiler<'a> {
 
     pub fn getFunction(&self, funcName: String) -> Result<usize, String> {
         let mut loc = 0 ;
-        for f in self.chunk.functionStore.clone() {
-            let fnc = f.get_function() ;
-            if fnc.name == funcName {
+        for f in self.functionStore.clone() {
+
+            if f.name == funcName {
                 return Ok(loc)
             }
             loc+=1 ;
@@ -257,13 +258,32 @@ impl<'a> Compiler<'a> {
 
     pub fn addFunction(&mut self, f: Function) {
         // Check that this function doesn't already exist
-        if self.getFunction(f.name.clone()).is_ok()  {
-            let msg = format!("Function with name: '{}' already exists", f.name) ;
-            self.errorAtCurrent(&msg) ;
-        } else {
-            self.chunk.functionStore.push(Value::function(f)) ;
+        let res = self.getFunction(f.name.clone()) ;
+        match res {
+            Ok(x) => {
+                if self.functionStore[x].isStub {
+                    self.functionStore[x] = f ;
+                } else {
+                    let msg = format!("Function with name: '{}' already exists", f.name) ;
+                    self.errorAtCurrent(&msg) ;
+                }
+            },
+            Err(s)  => {
+                self.functionStore.push(f)
+            }
         }
+    }
 
+    pub fn addStubFunction(&mut self, funcName: String) -> usize {
+        let f = Function {
+            name: funcName,
+            isStub: true,
+            arity: 0,
+            chunk: Chunk::new(),
+            returnType: DataType::None
+        } ;
+        self.functionStore.push(f) ;
+        self.functionStore.len()-1
     }
 
     fn nodePush(&mut self, node: Node) {
@@ -886,10 +906,13 @@ impl<'a> Compiler<'a> {
         let funcName = self.parser.previous().name ;
 
         let mut arity: u16 = 0 ;
-        self.consume(TOKEN_LEFT_PAREN, "Expect a '(' after the function name") ;
+
+        let msg = format!("Expect a '(' after the function {}", funcName) ;
+        self.consume(TOKEN_LEFT_PAREN, &msg) ;
         while ! self.t_match(TOKEN_RIGHT_PAREN) {
             // Count the number of parameters
             arity+=1 ;
+
         }
 
         // See if there is a return type
@@ -927,7 +950,8 @@ impl<'a> Compiler<'a> {
             returnType
         };
 
-        self.nodePush(funcNode) ;
+        //self.nodePush(funcNode) ;
+        self.walkTree(funcNode);
     }
 
     fn statement(&mut self) {
@@ -1280,6 +1304,7 @@ impl<'a> Compiler<'a> {
         self.locations[ptr].popLocation(tag)
 
     }
+
 
     // Walk tree
     pub fn walkTree(&mut self, node: Node) -> DataType {
@@ -1911,8 +1936,21 @@ impl<'a> Compiler<'a> {
                 parameters,
             } => {
 
-                let loc = self.getFunction(func).unwrap() ;
-                let f = self.chunk.functionStore[loc].clone().get_function() ;
+                let res = self.getFunction(func.clone());
+
+                let mut loc = 0 ;
+                match res {
+                    Ok(x) => {
+                        loc = x ;
+                    }  ,
+                    Err(s) => {
+                        //self.errorAtAst(&s, line) ;
+                        // The function hasn't been built yet
+                        loc = self.addStubFunction(func) ;
+                    }
+                }
+
+                let f = self.functionStore[loc].clone() ;
 
                 for n in parameters {
                     self.walkTree(n) ;
@@ -1946,7 +1984,7 @@ impl<'a> Compiler<'a> {
                 ) ;
 
                 self.addFunction(func.clone()) ;
-                let location = self.chunk.functionStore.len()-1 ;
+                let location = self.functionStore.len()-1 ;
 
                 // Stash the current chunk
                 let prev = self.chunk.clone() ;
@@ -1967,7 +2005,7 @@ impl<'a> Compiler<'a> {
 
                 // Put the old chunk back
                 *self.chunk = prev ;
-                self.chunk.functionStore[location] = Value::function(func.clone()) ;
+                self.functionStore[location] = func ;
 
                 returnType
             }

@@ -1,6 +1,6 @@
 use crate::chunk::{Chunk, OpCode};
 use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRET_RUNTIME_ERROR};
-use crate::value::{printValue, Value, Array, Dict, HKey};
+use crate::value::{printValue, Value, Array, Dict, HKey, Function};
 use crate::debug::* ;
 use crate::compiler::{Compiler};
 use crate::common::{boolAsf64};
@@ -30,6 +30,8 @@ pub struct VM {
     
     stack: Vec<Value>,
     stackTop: usize,
+
+    functionStore: Vec<Function>
 }
 
 impl VM {
@@ -41,7 +43,7 @@ impl VM {
             ip: 0,
             stack: Vec::with_capacity(1024000),
             stackTop: 0, // Start at an arbitrary position
-
+            functionStore: Vec::new()
         } ;
 
         for _ in 0 .. 1024000 {
@@ -55,7 +57,9 @@ impl VM {
     }
 
     pub fn Compile(&mut self, source: String) -> InterpretResult {
-        let mut compiler = Compiler::new(source, &mut self.chunk);
+        let mut compiler = Compiler::new(source,
+                                         &mut self.chunk,
+                                         &mut self.functionStore);
 
         let res = compiler.compile();
         if !res {
@@ -219,11 +223,7 @@ impl VM {
         macro_rules! get_function {
             ($loc:expr) => {
                 {
-                    let f  = frames[fPtr]
-                        .chunk
-                        .functionStore[$loc as usize]
-                        .clone() ;
-                    f.get_function().clone()
+                    self.functionStore[$loc as usize].clone()
                 }
             };
         }

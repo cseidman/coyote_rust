@@ -167,7 +167,6 @@ pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
     pub lines: Vec<usize>,
-    pub functionStore: Vec<Value>
 }
 
 impl PartialEq for Chunk {
@@ -182,11 +181,8 @@ impl Chunk {
             code: Vec::new(),
             constants: ValueArray::new(),
             lines: Vec::new(),
-            functionStore: Vec::new(),
-        }
+       }
     }
-
-
 }
 
 pub fn initChunk(chunk: &mut Chunk) {

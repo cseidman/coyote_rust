@@ -248,7 +248,7 @@ impl Scanner {
                 break ;
             }
 
-            if self.isAlpha(peek) {
+            if peek.is_alphanumeric() || peek == '_' {
                 self.advance();
             } else {
                 break ;
