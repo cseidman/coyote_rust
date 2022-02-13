@@ -197,8 +197,8 @@ pub struct Compiler<'a>  {
     locations: Vec<Location>,
     locationPtr: usize,
 
-    functionStore: &'a mut Vec<Function>
-
+    functionStore: &'a mut Vec<Function>,
+    callNodes: Vec<Node>,
 }
 
 impl<'a> Compiler<'a> {
@@ -220,7 +220,9 @@ impl<'a> Compiler<'a> {
 
             locations: Vec::new(),
             locationPtr: 0,
-            functionStore: funcStore
+            functionStore: funcStore,
+
+            callNodes: Vec::new()
 
         }
     }
@@ -288,6 +290,10 @@ impl<'a> Compiler<'a> {
 
     fn nodePush(&mut self, node: Node) {
         self.nodes.push(node) ;
+    }
+
+    fn storeCallNode(&mut self, node: Node) {
+        self.callNodes.push(node) ;
     }
 
     pub fn error(&mut self, message: &str) {
@@ -912,6 +918,7 @@ impl<'a> Compiler<'a> {
         while ! self.t_match(TOKEN_RIGHT_PAREN) {
             // Count the number of parameters
             arity+=1 ;
+            // Get the
 
         }
 
@@ -1195,7 +1202,8 @@ impl<'a> Compiler<'a> {
             parameters: params
         };
         self.popScope();
-        self.nodePush(fnode) ;
+        self.nodePush(fnode.clone()) ;
+        self.storeCallNode(fnode) ;
     }
 
     pub fn view_tree(&self) {
@@ -1221,6 +1229,8 @@ impl<'a> Compiler<'a> {
         };
         self.nodes = vec![startNode];
         self.walkTree(self.nodes[0].clone()) ;
+
+        self.check_calls() ;
 
         //if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
@@ -2010,6 +2020,49 @@ impl<'a> Compiler<'a> {
                 returnType
             }
 
+        }
+    }
+
+    // One more pass over the tree to make sure that all calls'
+    // parameter types match the function signatures
+    pub fn check_calls(&mut self) {
+        // This collection contains only the 'Node::call' type of
+        // node from the tree
+        for n in self.callNodes.clone() {
+            match n {
+                Node::call {
+                    line,
+                    arity,
+                    func,
+                    parameters
+                } => {
+                    // Try to get the function location
+                    let res = self.getFunction(func.clone()) ;
+                    match res {
+                        Ok(x) => {
+                            // The function is a stub so it was never defined. We're
+                            // calling a non-existent function
+                            if self.functionStore[x].isStub {
+                                self.errorAtAst("Function doesn't exist", line);
+                            }
+                            // The signatures don't match
+                            let funcArity = self.functionStore[x].arity;
+                            if funcArity != arity {
+                                let msg = format!("Function '{}' expects {} parameters, but you supplied {}",func, funcArity, arity) ;
+                                self.errorAtAst(&msg, line);
+                            }
+                        },
+                        // We really shouldn't even be able to reach this section
+                        // at all because all calls in the code generate a stub
+                        // if the function isn't found at the time we compile the call
+                        Err(s) => {
+                            // The function doesn't even exist
+                            self.errorAtAst(&s, line) ;
+                        }
+                    }
+                },
+                _ => {}
+            }
         }
     }
 
