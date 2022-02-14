@@ -1,4 +1,4 @@
-use crate::scanner::{TokenType, Token} ;
+use crate::scanner::{TokenType, Token, TokenData};
 use TokenType::* ;
 use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
 use crate::chunk::OpCode::*;
@@ -71,6 +71,51 @@ impl DataType {
         }
 
     }
+
+    pub fn from_declared_type(t: TokenData) -> DataType {
+        match t {
+            TokenData::INTEGER => DataType::Integer ,
+            TokenData::FLOAT => DataType::Float ,
+            TokenData::STRING => DataType::String ,
+            TokenData::BOOL => DataType::Bool,
+            //_ => DataType::None
+            /*
+            DataType::IArray => 50,
+            DataType::FArray => 60,
+            DataType::SArray => 70,
+            DataType::BArray => 80,
+            DataType::Dict => 90,
+            DataType::Object => 100,
+            DataType::Nil => 110,
+            DataType::Function => 120,
+            DataType::None => 0
+
+             */
+        }
+    }
+
+    pub fn as_declared_type(&self) -> TokenData {
+        match self {
+            DataType::Integer => TokenData::INTEGER,
+            DataType::Float => TokenData::FLOAT,
+            DataType::String => TokenData::STRING,
+            DataType::Bool => TokenData::BOOL,
+            _ => panic!("Unknown TokenData")
+            /*
+            DataType::IArray => 50,
+            DataType::FArray => 60,
+            DataType::SArray => 70,
+            DataType::BArray => 80,
+            DataType::Dict => 90,
+            DataType::Object => 100,
+            DataType::Nil => 110,
+            DataType::Function => 120,
+            DataType::None => 0
+
+             */
+        }
+    }
+
 
     pub fn from_operand(d: u16) -> DataType {
         match d {
@@ -188,6 +233,13 @@ pub enum Node {
         line: usize,
         name: String
     },
+
+    parameter {
+        line: usize,
+        name: String,
+        dataType: DataType
+    },
+
     setArray {
         line: usize,
         name: String,
@@ -263,6 +315,7 @@ pub enum Node {
         line: usize,
         name: String,
         arity: u16,
+        parameters: Vec<Node>,
         statements: Vec<Node>,
         returnType: DataType
     },

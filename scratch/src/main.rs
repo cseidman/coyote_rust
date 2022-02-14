@@ -14,6 +14,37 @@ impl<'a> VM {
 
     pub fn run(&'a mut self) {
 
+
+        self.data.push(0) ;
+        self.data.push(2) ;
+        self.data.push(3) ;
+        self.data.push(4) ;
+        self.data.push(5) ;
+        let mut ptr1: *mut usize = self.data[1..].as_mut_ptr();
+        let mut ptr2: *mut usize = self.data[2..].as_mut_ptr();
+        unsafe {
+            ptr1 = ptr1.add(1) ;
+            println!("Value {}", *ptr1) ;
+            *ptr1 = 100 ;
+            println!("Value {}", self.data[2]) ;
+
+
+            ptr2 = ptr1.offset(1) ;
+            println!("Value {}", *ptr2) ;
+            ptr2 = &mut 300 ;
+            println!("Value {}", *ptr2) ;
+        }
+
+
+        /*
+        unsafe {
+            let ptr2: *const u32 = buf.as_ptr().offset(buf.len() as isize);
+            while ptr1 < ptr2 {
+                println!("Address {:?} | Value {}", ptr1, *ptr1);
+                ptr1 = ptr1.offset(1);
+            }
+        }
+
         let mut f =  Frame {
             data: &mut [],
             ptr: &mut self.ptr
@@ -32,6 +63,7 @@ impl<'a> VM {
         let mut frames: Vec<Frame<'a>> = Vec::new() ;
         frames.push(f) ;
         frames[0].data[0] = 200 ;
+        */
 
 
     }

@@ -95,7 +95,6 @@ impl SymbolTable {
         let currentSlot = self.symbolLevel[self.level].nextSlot ;
         self.symbolLevel[self.level].nextSlot+=1 ;
 
-
         let symb = Symbol {
             name: name.clone(),
             level: self.level,

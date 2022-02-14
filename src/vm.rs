@@ -21,7 +21,8 @@ use crate::ast::DataType;
 pub struct Frame {
     pub chunk: Chunk, // New chunk coming from a function or method
     pub slotPtr: usize, // This is the pointer as it looks to the local frame
-    pub ip: usize // This tracks the instruction pointer of the local frame
+    pub ip: usize, // This tracks the instruction pointer of the local frame
+    pub slots: *mut Value
 }
 
 pub struct VM {
@@ -42,7 +43,7 @@ impl VM {
             chunk: Chunk::new(),
             ip: 0,
             stack: Vec::with_capacity(1024000),
-            stackTop: 0, // Start at an arbitrary position
+            stackTop: 0,
             functionStore: Vec::new()
         } ;
 
@@ -84,43 +85,48 @@ impl VM {
 
     pub fn run(&mut self) -> InterpretResult {
 
-        let f = Frame {
+
+        // Top level stack frame
+        let fr = Frame {
             chunk: self.chunk.clone(),
-            ip: 0,
-            slotPtr: 0,
+            ip: self.ip,
+            slotPtr: self.stackTop,
+            slots: self.stack[..].as_mut_ptr()
         } ;
 
-        let mut frames: Vec<Frame> = Vec::new() ;
-        frames.push(f) ;
-
+        let mut frames:Vec<Frame> = Vec::new() ;
+        frames.push(fr) ;
         let mut fPtr:usize = 0 ;
-        let top = self.stackTop;
-        let mut local = &mut self.stack[top ..] ;
 
         macro_rules! push_frame {
             ($func:expr) => {
 
-                let fr = Frame {
-                    chunk: $func.chunk,
-                    ip: 0,
-                    slotPtr: 0,
-                } ;
+                unsafe {
+                    let ptr = frames[fPtr].slotPtr as isize;
+                    let pos = $func.arity as isize;
+                    let slot: *mut Value = frames[fPtr].slots.offset(ptr-pos) ;
 
-                let start = top + frames[fPtr].slotPtr ;
+                    let fr = Frame {
+                        chunk: $func.chunk.clone(),
+                        ip: 0,
+                        slotPtr: $func.arity as usize,
+                        slots: slot
+                    } ;
 
-                frames.push(fr) ;
+                    frames.push(fr) ;
+                }
                 fPtr+=1 ;
-                local = &mut self.stack[start..] ;
 
             };
         }
 
         macro_rules! pop_frame {
             () => {
-                let start = top  ;
+
+                //Return the state to what it was
                 frames.pop() ;
-                local = &mut self.stack[start..] ;
-                fPtr-=1
+                fPtr-=1;
+
             };
         }
 
@@ -150,22 +156,30 @@ impl VM {
 
         macro_rules! push {
             ($value:expr) => {
-                let ptr = frames[fPtr].slotPtr ;
-                local[ptr] = $value;
-                frames[fPtr].slotPtr+=1 ;
+                let ptr = frames[fPtr].slotPtr as isize;
+                unsafe {
+                    *frames[fPtr].slots.offset(ptr) = $value;
+                    frames[fPtr].slotPtr+=1 ;
+                }
             };
         }
 
         macro_rules! pop {
             () => {{
                 frames[fPtr].slotPtr-=1 ;
-                local[frames[fPtr].slotPtr].clone()
+                let slot = frames[fPtr].slotPtr as isize ;
+                unsafe {
+                    (*frames[fPtr].slots.offset(slot)).clone()
+                }
             }};
         }
 
         macro_rules! peek {
             ($distance:expr) => {{
-                local[frames[fPtr].slotPtr-$distance-1].clone()
+                let offset = frames[fPtr].slotPtr-$distance-1 ;
+                unsafe {
+                    (*frames[fPtr].slots.offset(offset as isize)).clone()
+                }
             }};
         }
 
@@ -230,20 +244,23 @@ impl VM {
 
         macro_rules! setArrayElement {
             ($datatype:expr, $slot:expr) => {
-                let mut array = local[$slot].clone();
+                unsafe {
+                    let mut array = (*frames[fPtr].slots.offset($slot as isize)).clone();
 
-                let index = pop!().get_integer() as usize;
-                let value = pop!();
+                    let index = pop!().get_integer() as usize;
+                    let value = pop!();
 
-                let ar = array.get_array_mut();
+                    let ar = array.get_array_mut();
 
-                let arrayDataType = ar.getDataType();
-                if arrayDataType != $datatype {
-                    panic!("Incompatible data types for array") ;
+                    let arrayDataType = ar.getDataType();
+                    if arrayDataType != $datatype {
+                        panic!("Incompatible data types for array") ;
+                    }
+
+                    ar.put(index, value);
+                    *frames[fPtr].slots.offset($slot as isize) = array;
+
                 }
-
-                ar.put(index, value);
-                local[$slot] = array;
             };
         }
 
@@ -252,15 +269,16 @@ impl VM {
             /*** Debug ***/
             print!("          ");
             for slot in 0..frames[fPtr].slotPtr {
+                unsafe {
+                    let val = (*frames[fPtr].slots.offset(slot as isize)).clone();
+                    if val.isEmpty() {
+                        continue;
+                    }
 
-                let val = local[slot].clone() ;
-                if val.isEmpty() {
-                    continue;
+                    print!("[ ");
+                    printValue(val);
+                    print!(" ]");
                 }
-
-                print!("[ ");
-                printValue(val);
-                print!(" ]");
             }
             println!();
             disassembleInstruction(&frames[fPtr].chunk, frames[fPtr].ip) ;
@@ -349,14 +367,20 @@ impl VM {
                 }
 
                 OP_LOADVAR => {
-                    let slot = READ_OPERAND!() as usize;
-                    let val = local[slot].clone() ;
-                    push!(val) ;
+                    let slot = READ_OPERAND!() as isize;
+                    unsafe {
+                        let val = (*frames[fPtr].slots.offset(slot)).clone();
+                        push!(val);
+                    }
                 }
 
                 OP_SETVAR => {
-                    let slot = READ_OPERAND!() as usize;
-                    local[slot] = peek!(0) ;
+                    let slot = READ_OPERAND!() as isize;
+                    unsafe {
+                        let val = peek!(0) ;
+                        *frames[fPtr].slots.offset(slot) = val;
+
+                    }
                   }
 
                 OP_PRINT => {
@@ -409,25 +433,30 @@ impl VM {
                 | OP_FGETAELEMENT => {
                     let index = pop!().get_integer() as usize;
 
-                    let slot = READ_OPERAND!() as usize;
-                    let array = local[slot].clone().get_array() ;
-
-                    push!(array.get(index));
+                    let slot = READ_OPERAND!() as isize;
+                    unsafe {
+                        let array = (*frames[fPtr].slots.offset(slot)).clone().get_array();
+                        push!(array.get(index));
+                    }
 
                 },
 
                 OP_SETHELEMENT => {
 
-                    let slot = READ_OPERAND!() as usize;
-                    let mut hash = local[slot].clone() ;
 
-                    let key = HKey::new(pop!());
-                    let value = pop!() ;
+                    let slot = READ_OPERAND!() as isize;
+                    unsafe {
+                        let mut hash = (*frames[fPtr].slots.offset(slot)).clone();
 
-                    let h = hash.get_dict_mut();
+                        let key = HKey::new(pop!());
+                        let value = pop!();
 
-                    h.insert(key, value);
-                    local[slot] = hash ;
+                        let h = hash.get_dict_mut();
+
+                        h.insert(key, value);
+                        let slotLoc = frames[fPtr].slots.offset(slot) ;
+                        *slotLoc = hash;
+                    }
                 },
 
                 OP_ISETAELEMENT => {
@@ -467,10 +496,12 @@ impl VM {
 
                     let k = HKey::new(key) ;
 
-                    let slot = READ_OPERAND!() as usize;
-                    let dict = local[slot].clone().get_dict() ;
-                    let value = dict.get(k).unwrap_or(&Value::nil).clone();
-                    push!(value);
+                    let slot = READ_OPERAND!() as isize;
+                    unsafe {
+                        let dict = (*frames[fPtr].slots.offset(slot)).clone().get_dict();
+                        let value = dict.get(k).unwrap_or(&Value::nil).clone();
+                        push!(value);
+                    }
 
                 },
 
@@ -502,10 +533,11 @@ impl VM {
                 },
                 OP_CALL => {
 
-                    let args = READ_OPERAND!() ;
+                    let args = READ_OPERAND!()  ;
                     let fnc = get_function!(args) ;
 
                     push_frame!(fnc);
+
 
                 },
 

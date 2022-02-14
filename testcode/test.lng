@@ -1,10 +1,14 @@
-test2(2)
-print "Yo"
 
-func test2() {
-    test()
+func test(tt:String) {
+    print "Let's go!"
+    print tt
+    test2("Whoa!")
 }
 
-func test() {
-    print "Heigh"
+func test2(tx:String) {
+    print tx
 }
+
+test("Hey")
+print "Ok"
+

@@ -902,65 +902,6 @@ impl<'a> Compiler<'a> {
         self.nodePush(Node::EndBlock);
     }
 
-    fn funcDeclaration(&mut self) {
-
-        let line = self.parser.previous().line ;
-
-        // We consumed 'func' already. Now we need to get the name of the
-        // function itself
-        self.consume(TOKEN_IDENTIFIER, "Expect a function name after 'func'") ;
-        let funcName = self.parser.previous().name ;
-
-        let mut arity: u16 = 0 ;
-
-        let msg = format!("Expect a '(' after the function {}", funcName) ;
-        self.consume(TOKEN_LEFT_PAREN, &msg) ;
-        while ! self.t_match(TOKEN_RIGHT_PAREN) {
-            // Count the number of parameters
-            arity+=1 ;
-            // Get the
-
-        }
-
-        // See if there is a return type
-        // Assume it's 'none' if none of the others match
-        let mut returnType = DataType::None ;
-
-        if self.t_match(TOKEN_DATA_TYPE(TokenData::STRING)) {
-            returnType = DataType::String
-        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::INTEGER)) {
-            returnType = DataType::Integer
-        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::FLOAT)) {
-            returnType = DataType::Float
-        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::BOOL)) {
-            returnType = DataType::Bool
-        }  else if self.t_match(TOKEN_IDENTIFIER) {
-            // This means we're referring to a type
-        }
-
-        // Now grab the statements inside the function
-        let mut statements = Vec::new() ;
-
-        // This needs to begin with a brace
-        self.consume(TOKEN_LEFT_BRACE, "Expect a '{' after the function header") ;
-        while ! self.t_match(TOKEN_RIGHT_BRACE) {
-            self.statement() ;
-            let statement = self.nodes.pop().unwrap() ;
-            statements.insert(0, statement) ;
-        }
-
-        let funcNode = Node::function {
-            line,
-            name: funcName,
-            arity,
-            statements,
-            returnType
-        };
-
-        //self.nodePush(funcNode) ;
-        self.walkTree(funcNode);
-    }
-
     fn statement(&mut self) {
         if self.t_match(TOKEN_PRINT) {
             self.printStatement();
@@ -1169,10 +1110,12 @@ impl<'a> Compiler<'a> {
 
         let node = Node::VarDecl {
             line,
-            name: varname,
+            name: varname.clone(),
             assigned: isAssigned,
             varExpr: Box::new(declExpr)
         };
+
+        println!("Adding variable {}", varname) ;
 
         self.nodePush(node);
 
@@ -1192,18 +1135,103 @@ impl<'a> Compiler<'a> {
         while !self.t_match(TOKEN_RIGHT_PAREN) {
             arity+=1 ;
             self.expression() ;
-            params.insert(0, self.nodes.pop().unwrap()) ;
+            params.push(self.nodes.pop().unwrap()) ;
         }
-        self.pushScope();
         let fnode = Node::call {
             line,
             arity,
             func: funcName,
             parameters: params
         };
-        self.popScope();
         self.nodePush(fnode.clone()) ;
         self.storeCallNode(fnode) ;
+    }
+
+    fn match_declared_type(&mut self) -> DataType {
+        if self.t_match(TOKEN_DATA_TYPE(TokenData::STRING)) {
+            return DataType::String
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::INTEGER)) {
+            return DataType::Integer
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::FLOAT)) {
+            return DataType::Float
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::BOOL)) {
+            return DataType::Bool
+        }  else if self.t_match(TOKEN_IDENTIFIER) {
+            //
+        }
+        DataType::None
+    }
+
+    fn makeParameter(&mut self) -> Node {
+
+        let line = self.parser.previous().line ;
+
+        // Name of the parameter variable
+        self.consume(TOKEN_IDENTIFIER, "Expect parameter name after '('") ;
+        let name = self.parser.previous().name ;
+
+        // Type of parameter
+        self.consume(TOKEN_COLON, "Expect ':' after parameter name") ;
+
+        let dataType = self.match_declared_type();
+
+        Node::parameter {
+            line ,
+            name ,
+            dataType
+        }
+
+    }
+
+    fn funcDeclaration(&mut self) {
+
+        let line = self.parser.previous().line ;
+
+        // We consumed 'func' already. Now we need to get the name of the
+        // function itself
+        self.consume(TOKEN_IDENTIFIER, "Expect a function name after 'func'") ;
+        let funcName = self.parser.previous().name ;
+
+        let mut arity: u16 = 0 ;
+
+        let msg = format!("Expect a '(' after the function {}", funcName) ;
+        self.consume(TOKEN_LEFT_PAREN, &msg) ;
+
+        let mut parameters: Vec<Node> = Vec::new() ;
+        while ! self.t_match(TOKEN_RIGHT_PAREN) {
+            // Count the number of parameters
+            arity+=1 ;
+            let p = self.makeParameter() ;
+
+            parameters.push(p) ;
+
+        }
+
+        // See if there is a return type
+        let returnType = self.match_declared_type() ;
+
+        // Now grab the statements inside the function
+        let mut statements = Vec::new() ;
+
+        // This needs to begin with a brace
+        self.consume(TOKEN_LEFT_BRACE, "Expect a '{' after the function header") ;
+        while ! self.t_match(TOKEN_RIGHT_BRACE) {
+            self.statement() ;
+            let statement = self.nodes.pop().unwrap() ;
+            statements.push( statement) ;
+        }
+
+        let funcNode = Node::function {
+            line,
+            name: funcName,
+            arity,
+            parameters,
+            statements,
+            returnType
+        };
+
+        //self.nodePush(funcNode) ;
+        self.walkTree(funcNode);
     }
 
     pub fn view_tree(&self) {
@@ -1954,8 +1982,10 @@ impl<'a> Compiler<'a> {
                         loc = x ;
                     }  ,
                     Err(s) => {
-                        //self.errorAtAst(&s, line) ;
-                        // The function hasn't been built yet
+                        // The function hasn't been built yet, so we create a
+                        // placeholder in the functionStore so that we can
+                        // compile this call. In a subsequent pass, we'll
+                        // check to make sure that the function was actually created
                         loc = self.addStubFunction(func) ;
                     }
                 }
@@ -1971,13 +2001,24 @@ impl<'a> Compiler<'a> {
                 writeOp!(OP_CALL, line) ;
                 writeOperand!(loc as u16) ;
 
-                f.returnType
+                DataType::None
+            },
+
+            Node::parameter {
+                line,
+                name,
+                dataType
+            } => {
+
+                let loc = self.addVariable(name.clone(), dataType);
+                dataType
             },
 
             Node::function {
                 line,
                 name,
                 arity,
+                parameters,
                 statements,
                 returnType
             } => {
@@ -2002,12 +2043,20 @@ impl<'a> Compiler<'a> {
                 // Push a new chunk in the compiler
                 *self.chunk = Chunk::new() ;
 
+                self.symbTable.pushLevel() ;
+                // Run the parameter nodes
+                for n in parameters {
+                    self.walkTree(n) ;
+                }
+
                 // These statements go in the new chunk
                 for n in statements {
                     self.walkTree(n) ;
                 }
                 // Return from the function
+                self.symbTable.popLevel() ;
                 writeOp!(OP_RETURN, line) ;
+
 
                 // Now that the instructions are there, we replace it
                 // with the completed function
