@@ -1,3 +1,5 @@
+#![allow(unused_unsafe)]
+
 use crate::chunk::{Chunk, OpCode};
 use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRET_RUNTIME_ERROR};
 use crate::value::{printValue, Value, Array, Dict, HKey, Function};
@@ -109,11 +111,14 @@ impl VM {
                     let fr = Frame {
                         chunk: $func.chunk.clone(),
                         ip: 0,
-                        slotPtr: $func.arity as usize,
+                        slotPtr: 0,
                         slots: slot
                     } ;
 
                     frames.push(fr) ;
+                    // This is so that we get back to the correct location
+                    // before moving the pointer forward for the arity
+                    frames[fPtr].slotPtr += $func.arity as usize ;
                 }
                 fPtr+=1 ;
 
@@ -122,6 +127,8 @@ impl VM {
 
         macro_rules! pop_frame {
             () => {
+
+                frames[0].slotPtr = frames[fPtr].slotPtr ;
 
                 //Return the state to what it was
                 frames.pop() ;
@@ -537,7 +544,6 @@ impl VM {
                     let fnc = get_function!(args) ;
 
                     push_frame!(fnc);
-
 
                 },
 

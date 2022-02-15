@@ -52,7 +52,8 @@ enum ExpFunctions {
     ARRAY_BUILD,
     HASH_BUILD,
     AND,
-    OR
+    OR,
+    CALL
 }
 
 struct Rule {
@@ -670,7 +671,7 @@ impl<'a> Compiler<'a> {
 
     fn getRule(&mut self, tokenType: TokenType) -> Rule {
         match tokenType {
-            TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_NONE),
+            TOKEN_LEFT_PAREN    => Rule::new(GROUPING, CALL, PREC_CALL),
             TOKEN_LEFT_BRACKET  => Rule::new(ARRAY_BUILD, NONE, PREC_NONE),
             TOKEN_AT_BRACKET    => Rule::new(HASH_BUILD, NONE, PREC_NONE),
             TOKEN_MINUS
@@ -711,6 +712,7 @@ impl<'a> Compiler<'a> {
             OR => self.or_(),
             ARRAY_BUILD => self.arrayBuilder(),
             HASH_BUILD => self.hashBuilder(),
+            CALL => self.call(),
             _ => {
                 self.error("Binary expression {func} uknown") ;
             }
@@ -1059,11 +1061,12 @@ impl<'a> Compiler<'a> {
         let varname = self.parser.previous().name ;
 
         // Check if it's a function
+        /*
         if self.t_match(TOKEN_LEFT_PAREN) {
             self.call(varname) ;
             return ;
         }
-
+*/
         // Check if it's an array
         if self.t_match(TOKEN_LEFT_BRACKET) {
             self.namedArrayElement(varname) ;
@@ -1126,7 +1129,27 @@ impl<'a> Compiler<'a> {
         self.namedVariable() ;
     }
 
-    pub fn call(&mut self, funcName: String) {
+    pub fn call(&mut self) {
+
+        let fNode = self.nodes.last().unwrap().clone() ;
+        let mut funcName = "".to_string() ;
+        match fNode {
+            Node::function {
+                line,
+                name,
+                arity,
+                parameters,
+                statements,
+                returnType } => {
+
+                    funcName = name ;
+
+            },
+            _ => {
+                println!("{:?}", fNode) ;
+            }
+        }
+
 
         let line = self.parser.previous().line ;
         let mut params: Vec<Node> = Vec::new() ;
@@ -1136,12 +1159,14 @@ impl<'a> Compiler<'a> {
             arity+=1 ;
             self.expression() ;
             params.push(self.nodes.pop().unwrap()) ;
+            self.t_match(TOKEN_COMMA) ;
         }
         let fnode = Node::call {
             line,
             arity,
             func: funcName,
-            parameters: params
+            parameters: params,
+            returnType: DataType::None
         };
         self.nodePush(fnode.clone()) ;
         self.storeCallNode(fnode) ;
@@ -1202,8 +1227,8 @@ impl<'a> Compiler<'a> {
             // Count the number of parameters
             arity+=1 ;
             let p = self.makeParameter() ;
-
             parameters.push(p) ;
+            self.t_match(TOKEN_COMMA) ;
 
         }
 
@@ -1255,10 +1280,10 @@ impl<'a> Compiler<'a> {
         let startNode = Node::Root {
             children: tree
         };
-        self.nodes = vec![startNode];
-        self.walkTree(self.nodes[0].clone()) ;
 
         self.check_calls() ;
+        self.nodes = vec![startNode];
+        self.walkTree(self.nodes[0].clone()) ;
 
         //if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
@@ -1342,7 +1367,6 @@ impl<'a> Compiler<'a> {
         self.locations[ptr].popLocation(tag)
 
     }
-
 
     // Walk tree
     pub fn walkTree(&mut self, node: Node) -> DataType {
@@ -1511,7 +1535,9 @@ impl<'a> Compiler<'a> {
                     }
                 }
 
-                match format!("{}{}", l_type.emit(), op.emit()).as_str() {
+                let operatorString = format!("{}{}", l_type.emit(), op.emit()) ;
+
+                match  operatorString.as_str() {
                     "IADD" => {writeOp!(OP_IADD, line); DataType::Integer},
                     "ISUB" => {writeOp!(OP_ISUBTRACT, line);DataType::Integer},
                     "IMUL" => {writeOp!(OP_IMULTIPLY, line);DataType::Integer},
@@ -1547,7 +1573,8 @@ impl<'a> Compiler<'a> {
                     "SLTEQ"  => {writeOp!(OP_SLTEQ, line);DataType::Bool},
 
                     _ => {
-                        self.errorAtCurrent("Binary operator not found!");
+                        let msg = format!("Binary operator '{}' not found!", operatorString) ;
+                        self.errorAtCurrent(&msg);
                         DataType::None
                     }
                 }
@@ -1972,6 +1999,7 @@ impl<'a> Compiler<'a> {
                 arity,
                 func,
                 parameters,
+                returnType
             } => {
 
                 let res = self.getFunction(func.clone());
@@ -2000,8 +2028,9 @@ impl<'a> Compiler<'a> {
                 // on the stack now
                 writeOp!(OP_CALL, line) ;
                 writeOperand!(loc as u16) ;
+                println!("Return function {} {:?}", f.name, f.returnType) ;
+                self.functionStore[loc as usize].returnType
 
-                DataType::None
             },
 
             Node::parameter {
@@ -2057,7 +2086,6 @@ impl<'a> Compiler<'a> {
                 self.symbTable.popLevel() ;
                 writeOp!(OP_RETURN, line) ;
 
-
                 // Now that the instructions are there, we replace it
                 // with the completed function
                 func.chunk = self.chunk.clone() ;
@@ -2067,7 +2095,8 @@ impl<'a> Compiler<'a> {
                 self.functionStore[location] = func ;
 
                 returnType
-            }
+            },
+
 
         }
     }
@@ -2083,7 +2112,8 @@ impl<'a> Compiler<'a> {
                     line,
                     arity,
                     func,
-                    parameters
+                    parameters,
+                    returnType
                 } => {
                     // Try to get the function location
                     let res = self.getFunction(func.clone()) ;
@@ -2100,6 +2130,7 @@ impl<'a> Compiler<'a> {
                                 let msg = format!("Function '{}' expects {} parameters, but you supplied {}",func, funcArity, arity) ;
                                 self.errorAtAst(&msg, line);
                             }
+
                         },
                         // We really shouldn't even be able to reach this section
                         // at all because all calls in the code generate a stub

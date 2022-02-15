@@ -201,7 +201,6 @@ pub enum Node {
         line: usize,
         expr: Vec<Node>
     },
-
     Array {
         line: usize,
         arity: usize,
@@ -209,14 +208,12 @@ pub enum Node {
         elementType: DataType,
         values: Vec<Node>
     },
-
     Dict {
         line: usize,
         arity: usize,
         keys: Vec<Node>,
         values: Vec<Node>
     },
-
     VarDecl {
         line: usize,
         name: String ,
@@ -286,7 +283,6 @@ pub enum Node {
 
     Block,
     EndBlock,
-
     And {
         line: usize,
         expr: Box<Node>,
@@ -295,7 +291,6 @@ pub enum Node {
         line: usize,
         expr: Box<Node>,
     },
-    //Loop,
     EndWhile {
         line: usize,
         condition: Vec<Node>,
@@ -323,7 +318,8 @@ pub enum Node {
         line: usize,
         arity: u16,
         func: String,
-        parameters: Vec<Node>
+        parameters: Vec<Node>,
+        returnType: DataType
     }
 }
 
