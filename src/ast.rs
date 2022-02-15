@@ -231,6 +231,12 @@ pub enum Node {
         name: String
     },
 
+    functionVar {
+        line: usize,
+        name: String,
+        isStub: bool
+    },
+
     parameter {
         line: usize,
         name: String,

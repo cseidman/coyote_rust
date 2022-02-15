@@ -1055,18 +1055,46 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn namedFunction(&mut self, funcName: String) {
+        // We're about to make a function call and we need
+        // to check for the existence of this function which
+        // may have been declared AFTER this call is being made
+
+        // So first we check to make sure this function exists in
+        // the function store. If so, great. If not, we have to create
+        // a stub, a placeholder, for this function so that subsequent
+        // calls can find it. We'll fill in the details of the function
+        // in a subsequent AST pass
+
+        let f = self.getFunction(funcName.clone()) ;
+        let mut isStub = false ;
+        if f.is_err() {
+            // We didn't find the function, so add the stub here
+            self.addStubFunction(funcName.clone()) ;
+            isStub = true ;
+        }
+
+        let line = self.parser.previous().line ;
+
+        let n = Node::functionVar {
+            line: 0,
+            name: funcName,
+            isStub
+        };
+        self.nodePush(n) ;
+    }
+
     fn namedVariable(&mut self) {
 
         // This is the variable name we just encountered
         let varname = self.parser.previous().name ;
 
         // Check if it's a function
-        /*
-        if self.t_match(TOKEN_LEFT_PAREN) {
-            self.call(varname) ;
+        if self.check(TOKEN_LEFT_PAREN) {
+            self.namedFunction(varname) ;
             return ;
         }
-*/
+
         // Check if it's an array
         if self.t_match(TOKEN_LEFT_BRACKET) {
             self.namedArrayElement(varname) ;
@@ -1130,27 +1158,20 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn call(&mut self) {
-
+        /*
         let fNode = self.nodes.last().unwrap().clone() ;
         let mut funcName = "".to_string() ;
         match fNode {
-            Node::function {
-                line,
-                name,
-                arity,
-                parameters,
-                statements,
-                returnType } => {
-
+            Node::namedVar{
+                line, name
+            } => {
                     funcName = name ;
-
             },
             _ => {
                 println!("{:?}", fNode) ;
             }
         }
-
-
+        */
         let line = self.parser.previous().line ;
         let mut params: Vec<Node> = Vec::new() ;
 
@@ -1164,7 +1185,7 @@ impl<'a> Compiler<'a> {
         let fnode = Node::call {
             line,
             arity,
-            func: funcName,
+            func: String::new(),
             parameters: params,
             returnType: DataType::None
         };
@@ -1229,7 +1250,6 @@ impl<'a> Compiler<'a> {
             let p = self.makeParameter() ;
             parameters.push(p) ;
             self.t_match(TOKEN_COMMA) ;
-
         }
 
         // See if there is a return type
@@ -1281,9 +1301,10 @@ impl<'a> Compiler<'a> {
             children: tree
         };
 
-        self.check_calls() ;
         self.nodes = vec![startNode];
         self.walkTree(self.nodes[0].clone()) ;
+
+        //self.check_calls() ;
 
         //if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
@@ -1758,6 +1779,27 @@ impl<'a> Compiler<'a> {
                 symbol.datatype
             },
 
+            Node::functionVar {
+                line,
+                name,
+                isStub
+            } => {
+                let func = self.getFunction(name) ;
+                match func {
+                    Ok(x) => {
+                        writeOp!(OP_LOADFUNC, line);
+                        writeOperand!(x as u16);
+
+                        let f = self.functionStore[x].clone() ;
+                        f.returnType
+                    },
+                    Err(s) => {
+                        self.errorAtAst(&s, line) ;
+                        DataType::None
+                    }
+                }
+            },
+
             Node::Block => {
                 self.symbTable.pushLevel();
                 DataType::None
@@ -2001,7 +2043,7 @@ impl<'a> Compiler<'a> {
                 parameters,
                 returnType
             } => {
-
+                /*
                 let res = self.getFunction(func.clone());
 
                 let mut loc = 0 ;
@@ -2019,17 +2061,18 @@ impl<'a> Compiler<'a> {
                 }
 
                 let f = self.functionStore[loc].clone() ;
-
+                */
+                let mut arity:u16 = 0 ;
                 for n in parameters {
+                    arity+=1 ;
                     self.walkTree(n) ;
                 }
 
                 // If there were parameters, they should be
                 // on the stack now
                 writeOp!(OP_CALL, line) ;
-                writeOperand!(loc as u16) ;
-                println!("Return function {} {:?}", f.name, f.returnType) ;
-                self.functionStore[loc as usize].returnType
+                writeOperand!(arity) ;
+                DataType::None
 
             },
 

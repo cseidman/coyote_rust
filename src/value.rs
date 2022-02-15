@@ -320,6 +320,9 @@ impl Display for Value {
             Value::integer(x) => write!(f,"{}",x),
             Value::float(x) => write!(f,"{}",x),
             Value::string(x) => write!(f,"{}",x),
+            Value::function(fnc) => {
+                write!(f,"f:{}", fnc.name)
+            },
             _ => write!(f,"(Unknown)"),
         }
 

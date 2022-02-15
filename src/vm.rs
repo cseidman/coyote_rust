@@ -87,7 +87,6 @@ impl VM {
 
     pub fn run(&mut self) -> InterpretResult {
 
-
         // Top level stack frame
         let fr = Frame {
             chunk: self.chunk.clone(),
@@ -101,15 +100,18 @@ impl VM {
         let mut fPtr:usize = 0 ;
 
         macro_rules! push_frame {
-            ($func:expr) => {
-
+            ($arity:expr) => {
+                // Arity is the number of arguments
                 unsafe {
                     let ptr = frames[fPtr].slotPtr as isize;
-                    let pos = $func.arity as isize;
-                    let slot: *mut Value = frames[fPtr].slots.offset(ptr-pos) ;
+                    let pos = $arity as isize;
+                    let mut slot: *mut Value = frames[fPtr].slots.offset(ptr-pos) ;
+
+                    let func = (*slot).clone().get_function() ;
+                    slot = slot.offset(1) ;
 
                     let fr = Frame {
-                        chunk: $func.chunk.clone(),
+                        chunk: func.chunk.clone(),
                         ip: 0,
                         slotPtr: 0,
                         slots: slot
@@ -118,7 +120,7 @@ impl VM {
                     frames.push(fr) ;
                     // This is so that we get back to the correct location
                     // before moving the pointer forward for the arity
-                    frames[fPtr].slotPtr += $func.arity as usize ;
+                    frames[fPtr].slotPtr += $arity as usize ;
                 }
                 fPtr+=1 ;
 
@@ -540,12 +542,19 @@ impl VM {
                 },
                 OP_CALL => {
 
-                    let args = READ_OPERAND!()  ;
-                    let fnc = get_function!(args) ;
+                    let args = READ_OPERAND!() as usize  ;
 
-                    push_frame!(fnc);
+                    push_frame!(args+1);
+
 
                 },
+
+                OP_LOADFUNC => {
+
+                    let funcIndex = READ_OPERAND!() as usize ;
+                    let func = self.functionStore[funcIndex].clone();
+                    push!(Value::function(func)) ;
+                }
 
                 _ => {return INTERPRET_OK}
             }

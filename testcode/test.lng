@@ -1,12 +1,8 @@
-func add2(x:integer) integer {
-    add(x,2)
-}
-
 func add(x:integer, y:integer) integer {
-    x+y
+    print x+y
 }
 
-print add2(8)
+print add(8,3)
 print "Done!"
 
 
