@@ -28,7 +28,8 @@ pub struct Symbol {
 pub struct SymbolLevel {
     symbols: HashMap<String, Symbol>,
     level: usize,
-    nextSlot: usize
+    nextSlot: usize,
+    varcount: usize
 }
 
 impl SymbolLevel {
@@ -36,7 +37,8 @@ impl SymbolLevel {
         Self {
             symbols: HashMap::new(),
             level: 0,
-            nextSlot: 0
+            nextSlot: 0,
+            varcount: 0
         }
     }
 }
@@ -63,7 +65,7 @@ impl SymbolTable {
     }
 
     pub fn varCount(&self) -> usize {
-        self.symbolLevel[self.level-1].symbols.len()
+        self.symbolLevel[self.level].varcount
     }
 
     pub fn debug(&self) {
@@ -83,6 +85,9 @@ impl SymbolTable {
     }
 
     pub fn popLevel(&mut self) {
+        for _ in 0..self.varCount() {
+            self.symbolLevel[self.level].varcount-=1 ;
+        }
         self.symbolLevel.pop() ;
         self.level-=1 ;
     }
@@ -94,6 +99,7 @@ impl SymbolTable {
     ) -> usize {
         let currentSlot = self.symbolLevel[self.level].nextSlot ;
         self.symbolLevel[self.level].nextSlot+=1 ;
+        self.symbolLevel[self.level].varcount+=1 ;
 
         let symb = Symbol {
             name: name.clone(),
@@ -101,6 +107,7 @@ impl SymbolTable {
             location: currentSlot,
             datatype
         };
+
         self.symbolLevel[self.level].symbols.insert(name.clone(), symb) ;
         currentSlot
 

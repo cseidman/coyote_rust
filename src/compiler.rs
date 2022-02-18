@@ -234,6 +234,7 @@ impl<'a> Compiler<'a> {
 
     // Symbol table operations
     pub fn addVariable(&mut self, varname: String, datatype: DataType) -> usize {
+
         self.symbTable.addSymbol(varname, datatype)
     }
 
@@ -1102,7 +1103,7 @@ impl<'a> Compiler<'a> {
             }
             pcount+=1 ;
             self.expression() ;
-            params.insert(0, self.nodes.pop().unwrap()) ;
+            params.push( self.nodes.pop().unwrap()) ;
         }
 
         if pcount != oFunc.arity {
@@ -1186,8 +1187,6 @@ impl<'a> Compiler<'a> {
             varExpr: Box::new(declExpr)
         };
 
-        println!("Adding variable {}", varname) ;
-
         self.nodePush(node);
 
     }
@@ -1268,6 +1267,7 @@ impl<'a> Compiler<'a> {
 
         let dataType = self.match_declared_type();
 
+
         Node::parameter {
             line ,
             name ,
@@ -1284,6 +1284,8 @@ impl<'a> Compiler<'a> {
         // function itself
         self.consume(TOKEN_IDENTIFIER, "Expect a function name after 'func'") ;
         let funcName = self.parser.previous().name ;
+
+        let loc = self.addStubFunction(funcName.clone());
 
         let mut arity: u16 = 0 ;
 
@@ -1305,6 +1307,10 @@ impl<'a> Compiler<'a> {
 
         // Now grab the statements inside the function
         let mut statements = Vec::new() ;
+
+        self.functionStore[loc].arity = arity ;
+        self.functionStore[loc].returnType = returnType ;
+        self.functionStore[loc].chunk.locals = arity as usize ;
 
         // This needs to begin with a brace
         self.consume(TOKEN_LEFT_BRACE, "Expect a '{' after the function header") ;
@@ -1352,7 +1358,7 @@ impl<'a> Compiler<'a> {
 
         self.nodes = vec![startNode];
         self.walkTree(self.nodes[0].clone()) ;
-        self.check_calls() ;
+        //self.check_calls() ;
 
         //if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
@@ -1685,7 +1691,6 @@ impl<'a> Compiler<'a> {
 
                 let datatype = self.walkTree(*varExpr, );
                 let loc = self.addVariable(name.clone(), datatype) ;
-                self.chunk.locals+=1 ;
                 writeOp!(OP_SETVAR, line);
                 writeOperand!(loc as u16);
 
@@ -1834,8 +1839,7 @@ impl<'a> Compiler<'a> {
             Node::EndBlock => {
                 self.chunk.locals = self.symbTable.varCount() ;
                 for _ in 0..self.symbTable.varCount() {
-
-                    writeOp!(OP_POP,0) ;
+                     writeOp!(OP_POP,0) ;
                 }
                 self.symbTable.popLevel();
                 DataType::None
@@ -2080,11 +2084,7 @@ impl<'a> Compiler<'a> {
                         loc = x ;
                     }  ,
                     Err(s) => {
-                        // The function hasn't been built yet, so we create a
-                        // placeholder in the functionStore so that we can
-                        // compile this call. In a subsequent pass, we'll
-                        // check to make sure that the function was actually created
-                        loc = self.addStubFunction(func) ;
+                        self.errorAtCurrent(&s) ;
                     }
                 }
 
@@ -2127,14 +2127,16 @@ impl<'a> Compiler<'a> {
                 // an existing function when it comes time to resolve the
                 // name for recursion
                 let mut func = Function::new(
-                    name,
+                    name.clone(),
                     arity,
                     Chunk::new(),
                     returnType
                 ) ;
 
-                self.addFunction(func.clone()) ;
-                let location = self.functionStore.len()-1 ;
+                //self.addFunction(func.clone()) ;
+                //let location = self.functionStore.len()-1 ;
+
+                let location = self.getFunction(name.clone()).unwrap();
 
                 // Stash the current chunk
                 let prev = self.chunk.clone() ;

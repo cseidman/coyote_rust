@@ -105,23 +105,25 @@ impl VM {
         macro_rules! push_frame {
             ($func:expr) => {
 
-
                 // The slot pointer to the frame needs to point to
                 // the current stacktop - the arity
                 unsafe {
 
+                    let oldStackTop = self.stackTop ;
                     let arity = $func.arity as usize ;
-                    self.stackTop += frames[fPtr].slotPtr  ;
+                    let locals = $func.chunk.locals ;
+                    self.stackTop += frames[fPtr].slotPtr - arity ;
 
-                    let start = self.stackTop-arity;
+                    let start = self.stackTop;
+
                     // For the previous frame, we want to sweep the parameters
                     // off the stack when we pop it off so we set its pointer
                     // back the length of the parameter stack
+
                     frames[fPtr].slotPtr-= arity ;
-                    // Store the location of the stacktop so we can get right back to
-                    // when the frame pops off
-                    let oldStackTop = start;
+
                     // The slice 0 needs to be at the first parameter
+
                     let slot = self.stack[start..].as_mut_ptr();
 
                     let fr = Frame {
@@ -129,10 +131,10 @@ impl VM {
                         ip: 0,
                         // The actual pointer needs to already be one position
                         // past the last parameter
-                        slotPtr: $func.chunk.locals + arity as usize ,
+                        slotPtr: locals + arity +1 as usize ,
                         // But the slice begins at 0 where the first parameter is located
                         slots: slot,
-                        oldStackTop: oldStackTop
+                        oldStackTop
                     } ;
 
                     frames.push(fr) ;
@@ -565,6 +567,7 @@ impl VM {
                     let fnc = get_function!(args) ;
 
                     push_frame!(fnc);
+
 
                 },
 
