@@ -671,7 +671,7 @@ impl<'a> Compiler<'a> {
 
     fn getRule(&mut self, tokenType: TokenType) -> Rule {
         match tokenType {
-            TOKEN_LEFT_PAREN    => Rule::new(GROUPING, CALL, PREC_CALL),
+            TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_CALL),
             TOKEN_LEFT_BRACKET  => Rule::new(ARRAY_BUILD, NONE, PREC_NONE),
             TOKEN_AT_BRACKET    => Rule::new(HASH_BUILD, NONE, PREC_NONE),
             TOKEN_MINUS
@@ -712,7 +712,7 @@ impl<'a> Compiler<'a> {
             OR => self.or_(),
             ARRAY_BUILD => self.arrayBuilder(),
             HASH_BUILD => self.hashBuilder(),
-            CALL => self.call(),
+            //CALL => self.call(),
             _ => {
                 self.error("Binary expression {func} uknown") ;
             }
@@ -896,6 +896,18 @@ impl<'a> Compiler<'a> {
         self.nodePush(Node::Continue);
     }
 
+    fn returnStatement(&mut self) {
+
+        let line = self.parser.previous().line ;
+        self.expression() ;
+        let node = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::Return {
+            line ,
+            returnVal: Box::new(node)
+        })
+    }
+    
     fn beginScope(&mut self) {
         self.nodePush(Node::Block);
     }
@@ -919,6 +931,8 @@ impl<'a> Compiler<'a> {
             self.breakStatement();
         } else if self.t_match(TOKEN_CONTINUE) {
             self.continueStatement();
+        } else if self.t_match(TOKEN_RETURN) {
+            self.returnStatement();
         } else {
             self.expression();
         }
@@ -1037,7 +1051,6 @@ impl<'a> Compiler<'a> {
             };
             self.nodePush(node);
         }
-
     }
 
     fn namedSingleVariable(&mut self, varname: String) {
@@ -1056,32 +1069,59 @@ impl<'a> Compiler<'a> {
     }
 
     fn namedFunction(&mut self, funcName: String) {
-        // We're about to make a function call and we need
-        // to check for the existence of this function which
-        // may have been declared AFTER this call is being made
-
-        // So first we check to make sure this function exists in
-        // the function store. If so, great. If not, we have to create
-        // a stub, a placeholder, for this function so that subsequent
-        // calls can find it. We'll fill in the details of the function
-        // in a subsequent AST pass
-
-        let f = self.getFunction(funcName.clone()) ;
-        let mut isStub = false ;
-        if f.is_err() {
-            // We didn't find the function, so add the stub here
-            self.addStubFunction(funcName.clone()) ;
-            isStub = true ;
-        }
-
         let line = self.parser.previous().line ;
 
-        let n = Node::functionVar {
-            line: 0,
-            name: funcName,
-            isStub
+        // Load the fully assigned call command on to the stack ..
+
+        // First we get the index of the function
+        let func_result = self.getFunction(funcName.clone()) ;
+        let mut func_index: usize = 0;
+        match func_result {
+            Ok(f) => {
+                func_index = f ;
+            },
+            Err(e) => {
+                self.error(&e) ;
+            }
+        }
+        // We load the function here so as to obtain the expected arity and the
+        // return type
+        let oFunc = self.functionStore[func_index].clone();
+
+        let returnType = oFunc.returnType;
+        let arity = oFunc.arity ;
+
+        // Collect the parameters that should already be there when someone
+        // calls the function
+        let mut pcount = 0 ;
+        let mut params: Vec<Node> = Vec::new() ;
+
+        while !self.t_match(TOKEN_RIGHT_PAREN) {
+            if pcount > 0 {
+                self.consume(TOKEN_COMMA, "Expect comma after parameter") ;
+            }
+            pcount+=1 ;
+            self.expression() ;
+            params.insert(0, self.nodes.pop().unwrap()) ;
+        }
+
+        if pcount != oFunc.arity {
+            self.errorAtCurrent(&format!("Function {} requires {} parameters, but you supplied {}",
+                                        funcName,
+                                        oFunc.arity,
+                                        pcount));
+        }
+
+        let ncall = Node::call {
+            line,
+            arity,
+            func: funcName,
+            parameters: params,
+            returnType
         };
-        self.nodePush(n) ;
+
+        self.nodePush(ncall) ;
+
     }
 
     fn namedVariable(&mut self) {
@@ -1090,7 +1130,7 @@ impl<'a> Compiler<'a> {
         let varname = self.parser.previous().name ;
 
         // Check if it's a function
-        if self.check(TOKEN_LEFT_PAREN) {
+        if self.t_match(TOKEN_LEFT_PAREN) {
             self.namedFunction(varname) ;
             return ;
         }
@@ -1158,20 +1198,27 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn call(&mut self) {
-        /*
+
         let fNode = self.nodes.last().unwrap().clone() ;
         let mut funcName = "".to_string() ;
         match fNode {
-            Node::namedVar{
-                line, name
-            } => {
+            Node::function {
+                line,
+                name,
+                arity,
+                parameters,
+                statements,
+                returnType } => {
+
                     funcName = name ;
+
             },
             _ => {
                 println!("{:?}", fNode) ;
             }
         }
-        */
+
+
         let line = self.parser.previous().line ;
         let mut params: Vec<Node> = Vec::new() ;
 
@@ -1185,7 +1232,7 @@ impl<'a> Compiler<'a> {
         let fnode = Node::call {
             line,
             arity,
-            func: String::new(),
+            func: funcName,
             parameters: params,
             returnType: DataType::None
         };
@@ -1250,6 +1297,7 @@ impl<'a> Compiler<'a> {
             let p = self.makeParameter() ;
             parameters.push(p) ;
             self.t_match(TOKEN_COMMA) ;
+
         }
 
         // See if there is a return type
@@ -1261,7 +1309,7 @@ impl<'a> Compiler<'a> {
         // This needs to begin with a brace
         self.consume(TOKEN_LEFT_BRACE, "Expect a '{' after the function header") ;
         while ! self.t_match(TOKEN_RIGHT_BRACE) {
-            self.statement() ;
+            self.declaration() ;
             let statement = self.nodes.pop().unwrap() ;
             statements.push( statement) ;
         }
@@ -1301,10 +1349,10 @@ impl<'a> Compiler<'a> {
             children: tree
         };
 
+
         self.nodes = vec![startNode];
         self.walkTree(self.nodes[0].clone()) ;
-
-        //self.check_calls() ;
+        self.check_calls() ;
 
         //if self.parser.hadError {
             disassembleChunk(self.chunk, "code") ;
@@ -1637,7 +1685,7 @@ impl<'a> Compiler<'a> {
 
                 let datatype = self.walkTree(*varExpr, );
                 let loc = self.addVariable(name.clone(), datatype) ;
-
+                self.chunk.locals+=1 ;
                 writeOp!(OP_SETVAR, line);
                 writeOperand!(loc as u16);
 
@@ -1772,32 +1820,10 @@ impl<'a> Compiler<'a> {
                 name
             } => {
                 let symbol = self.getVariable(name.clone()) ;
-
                 writeOp!(OP_LOADVAR, line);
                 writeOperand!(symbol.location as u16);
 
                 symbol.datatype
-            },
-
-            Node::functionVar {
-                line,
-                name,
-                isStub
-            } => {
-                let func = self.getFunction(name) ;
-                match func {
-                    Ok(x) => {
-                        writeOp!(OP_LOADFUNC, line);
-                        writeOperand!(x as u16);
-
-                        let f = self.functionStore[x].clone() ;
-                        f.returnType
-                    },
-                    Err(s) => {
-                        self.errorAtAst(&s, line) ;
-                        DataType::None
-                    }
-                }
             },
 
             Node::Block => {
@@ -1806,7 +1832,9 @@ impl<'a> Compiler<'a> {
             },
 
             Node::EndBlock => {
+                self.chunk.locals = self.symbTable.varCount() ;
                 for _ in 0..self.symbTable.varCount() {
+
                     writeOp!(OP_POP,0) ;
                 }
                 self.symbTable.popLevel();
@@ -2043,7 +2071,7 @@ impl<'a> Compiler<'a> {
                 parameters,
                 returnType
             } => {
-                /*
+
                 let res = self.getFunction(func.clone());
 
                 let mut loc = 0 ;
@@ -2061,18 +2089,17 @@ impl<'a> Compiler<'a> {
                 }
 
                 let f = self.functionStore[loc].clone() ;
-                */
-                let mut arity:u16 = 0 ;
+
                 for n in parameters {
-                    arity+=1 ;
                     self.walkTree(n) ;
                 }
 
                 // If there were parameters, they should be
                 // on the stack now
                 writeOp!(OP_CALL, line) ;
-                writeOperand!(arity) ;
-                DataType::None
+                writeOperand!(loc as u16) ;
+                println!("Return function {} {:?}", f.name, f.returnType) ;
+                self.functionStore[loc as usize].returnType
 
             },
 

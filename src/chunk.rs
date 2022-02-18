@@ -78,7 +78,6 @@ pub enum OpCode {
     OP_SETHELEMENT,
 
     OP_CALL,
-    OP_LOADFUNC,
 
     OP_UNKNOWN
 }
@@ -157,7 +156,6 @@ impl From<u8> for OpCode {
             63 => OP_SETHELEMENT,
 
             64 => OP_CALL,
-            65 => OP_LOADFUNC,
 
             _   => OP_UNKNOWN,
         }
@@ -169,6 +167,7 @@ pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
     pub lines: Vec<usize>,
+    pub locals: usize
 }
 
 impl PartialEq for Chunk {
@@ -183,6 +182,7 @@ impl Chunk {
             code: Vec::new(),
             constants: ValueArray::new(),
             lines: Vec::new(),
+            locals: 0
        }
     }
 }

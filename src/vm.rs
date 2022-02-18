@@ -24,7 +24,8 @@ pub struct Frame {
     pub chunk: Chunk, // New chunk coming from a function or method
     pub slotPtr: usize, // This is the pointer as it looks to the local frame
     pub ip: usize, // This tracks the instruction pointer of the local frame
-    pub slots: *mut Value
+    pub slots: *mut Value,
+    pub oldStackTop: usize ,
 }
 
 pub struct VM {
@@ -87,12 +88,14 @@ impl VM {
 
     pub fn run(&mut self) -> InterpretResult {
 
+
         // Top level stack frame
         let fr = Frame {
             chunk: self.chunk.clone(),
             ip: self.ip,
             slotPtr: self.stackTop,
-            slots: self.stack[..].as_mut_ptr()
+            slots: self.stack[..].as_mut_ptr(),
+            oldStackTop: self.stackTop
         } ;
 
         let mut frames:Vec<Frame> = Vec::new() ;
@@ -100,29 +103,43 @@ impl VM {
         let mut fPtr:usize = 0 ;
 
         macro_rules! push_frame {
-            ($arity:expr) => {
-                // Arity is the number of arguments
-                unsafe {
-                    let ptr = frames[fPtr].slotPtr as isize;
-                    let pos = $arity as isize;
-                    let mut slot: *mut Value = frames[fPtr].slots.offset(ptr-pos) ;
+            ($func:expr) => {
 
-                    let func = (*slot).clone().get_function() ;
-                    slot = slot.offset(1) ;
+
+                // The slot pointer to the frame needs to point to
+                // the current stacktop - the arity
+                unsafe {
+
+                    let arity = $func.arity as usize ;
+                    self.stackTop += frames[fPtr].slotPtr  ;
+
+                    let start = self.stackTop-arity;
+                    // For the previous frame, we want to sweep the parameters
+                    // off the stack when we pop it off so we set its pointer
+                    // back the length of the parameter stack
+                    frames[fPtr].slotPtr-= arity ;
+                    // Store the location of the stacktop so we can get right back to
+                    // when the frame pops off
+                    let oldStackTop = start;
+                    // The slice 0 needs to be at the first parameter
+                    let slot = self.stack[start..].as_mut_ptr();
 
                     let fr = Frame {
-                        chunk: func.chunk.clone(),
+                        chunk: $func.chunk.clone(),
                         ip: 0,
-                        slotPtr: 0,
-                        slots: slot
+                        // The actual pointer needs to already be one position
+                        // past the last parameter
+                        slotPtr: $func.chunk.locals + arity as usize ,
+                        // But the slice begins at 0 where the first parameter is located
+                        slots: slot,
+                        oldStackTop: oldStackTop
                     } ;
 
                     frames.push(fr) ;
-                    // This is so that we get back to the correct location
-                    // before moving the pointer forward for the arity
-                    frames[fPtr].slotPtr += $arity as usize ;
+                    fPtr+=1 ;
+                    //frames[fPtr].slotPtr+= arity ;
+
                 }
-                fPtr+=1 ;
 
             };
         }
@@ -130,11 +147,11 @@ impl VM {
         macro_rules! pop_frame {
             () => {
 
-                frames[0].slotPtr = frames[fPtr].slotPtr ;
-
-                //Return the state to what it was
                 frames.pop() ;
                 fPtr-=1;
+
+                // Set the stacktop back to where it was before we made the call
+                self.stackTop = frames[fPtr].oldStackTop;
 
             };
         }
@@ -386,7 +403,7 @@ impl VM {
                 OP_SETVAR => {
                     let slot = READ_OPERAND!() as isize;
                     unsafe {
-                        let val = peek!(0) ;
+                        let val = pop!() ;
                         *frames[fPtr].slots.offset(slot) = val;
 
                     }
@@ -534,7 +551,9 @@ impl VM {
                 },
                 OP_RETURN => {
                     if fPtr > 0 {
+                        let val = pop!();
                         pop_frame!();
+                        push!(val) ;
                     } else {
                         return INTERPRET_OK
                     }
@@ -542,19 +561,12 @@ impl VM {
                 },
                 OP_CALL => {
 
-                    let args = READ_OPERAND!() as usize  ;
+                    let args = READ_OPERAND!()  ;
+                    let fnc = get_function!(args) ;
 
-                    push_frame!(args+1);
-
+                    push_frame!(fnc);
 
                 },
-
-                OP_LOADFUNC => {
-
-                    let funcIndex = READ_OPERAND!() as usize ;
-                    let func = self.functionStore[funcIndex].clone();
-                    push!(Value::function(func)) ;
-                }
 
                 _ => {return INTERPRET_OK}
             }
