@@ -162,19 +162,15 @@ impl From<u8> for OpCode {
     }
 }
 
-#[derive(Debug, Clone, PartialOrd)]
+#[derive(Debug, Clone)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
     pub lines: Vec<usize>,
-    pub locals: usize
+    pub locals: usize,
+    pub symbTable: SymbolTable
 }
 
-impl PartialEq for Chunk {
-    fn eq(&self, other: &Self) -> bool {
-       false
-    }
-}
 
 impl Chunk {
     pub fn new() -> Self {
@@ -182,7 +178,8 @@ impl Chunk {
             code: Vec::new(),
             constants: ValueArray::new(),
             lines: Vec::new(),
-            locals: 0
+            locals: 0,
+            symbTable: SymbolTable::new()
        }
     }
 }

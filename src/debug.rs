@@ -1,5 +1,5 @@
 use crate::chunk::{Chunk, OpCode, currentLocation};
-use crate::value::{printValue};
+use crate::value::{Function, printValue};
 use crate::common::{BytesToU16};
 use std::convert::Into;
 
@@ -14,6 +14,14 @@ fn valueInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     println!("{:16} {}", name, constant);
     offset + 2
 }
+
+fn callInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
+    let offset = offset+1 ;
+    let constant = BytesToU16(&chunk.code[offset..offset+2]) ;
+    println!("{:16} {}", name, constant);
+    offset + 2
+}
+
 
 fn varInstruction (name: &str,chunk: &Chunk, offset: usize) -> usize {
     let offset = offset+1 ;
@@ -121,7 +129,7 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_JUMP => jumpBackInstruction(display!(instruction),  chunk, offset),
          OpCode::OP_JUMP_IF_FALSE
         | OpCode::OP_JUMP_IF_FALSE_NOPOP => jumpFowardInstruction(display!(instruction),  chunk, offset),
-        OpCode::OP_CALL
+        | OpCode::OP_CALL => callInstruction(display!(instruction),  chunk, offset),
         | OpCode::OP_PUSH=> valueInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_LOADVAR
         | OpCode::OP_IGETAELEMENT
@@ -146,7 +154,7 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
 
 pub fn disassembleChunk(chunk: &Chunk, name: &str) {
     println!() ;
-    println!("== {} ==", name);
+    println!("{}", name);
     let mut offset  = 0 ;
     loop {
         offset = disassembleInstruction(chunk, offset) ;
@@ -154,6 +162,20 @@ pub fn disassembleChunk(chunk: &Chunk, name: &str) {
             break ;
         }
     }
+}
+
+pub fn disassembleFunctions(fnc: &Vec<Function>, name: &str) {
+
+    println!("== {} ==", name);
+
+    for f in fnc {
+        println!() ;
+        let title = format!("Function [{}]\n .args [{}]\n .returns [{:?}]\n .locals [{}] ", f.name, f.arity, f.returnType, f.chunk.locals) ;
+        disassembleChunk(&f.chunk,&title) ;
+
+    }
+
+
 }
 
 

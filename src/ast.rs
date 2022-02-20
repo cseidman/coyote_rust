@@ -316,10 +316,8 @@ pub enum Node {
     },
     call {
         line: usize,
-        arity: u16,
+        params: Vec<Node>,
         func: String,
-        parameters: Vec<Node>,
-        returnType: DataType
     }
 }
 

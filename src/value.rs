@@ -235,19 +235,13 @@ impl PartialEq for Class {
 }
 
 // Function
-#[derive(Debug, Clone, PartialOrd)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     pub isStub: bool,
     pub arity: u16,
     pub chunk: Chunk,
     pub returnType: DataType
-}
-
-impl PartialEq for Function {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
 }
 
 impl Function {
@@ -273,7 +267,7 @@ pub enum Value {
     hash(Dict),
     nil,
     empty,
-    function(Function)
+    function(usize)
 }
 
 impl Display for Value {
@@ -343,11 +337,11 @@ impl Value {
         }
     }
 
-    pub fn get_function(self) -> Function {
+    pub fn get_function(self) -> usize {
         if let Value::function(x) = self {
             return x;
         }
-        panic!("Value {:?} is not a function", self) ;
+        panic!("Value {:?} is not a function id", self) ;
     }
 
     pub fn isNil(&self) -> bool {
@@ -456,7 +450,7 @@ impl PartialEq for Value {
             },
             Value::function(x) => {
                 if let Value::function(y) = other {
-                    x.name == y.name && x.arity == y.arity
+                    x == y
                 } else {
                     panic!("Mismatch when trying to equate functions");
                 }

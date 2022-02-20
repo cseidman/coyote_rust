@@ -76,6 +76,10 @@ impl SymbolTable {
         }
     }
 
+    pub fn getLevel(&mut self) -> usize {
+        self.level
+    }
+
     pub fn pushLevel(&mut self) {
         let mut symbLevel = SymbolLevel::new() ;
         symbLevel.nextSlot = self.symbolLevel[self.level].nextSlot ;

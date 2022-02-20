@@ -88,7 +88,6 @@ impl VM {
 
     pub fn run(&mut self) -> InterpretResult {
 
-
         // Top level stack frame
         let fr = Frame {
             chunk: self.chunk.clone(),
@@ -102,6 +101,9 @@ impl VM {
         frames.push(fr) ;
         let mut fPtr:usize = 0 ;
 
+        println!("Locals: {}", self.chunk.clone().locals) ;
+
+
         macro_rules! push_frame {
             ($func:expr) => {
 
@@ -112,7 +114,10 @@ impl VM {
                     let oldStackTop = self.stackTop ;
                     let arity = $func.arity as usize ;
                     let locals = $func.chunk.locals ;
-                    self.stackTop += frames[fPtr].slotPtr - arity ;
+                    // The stacktop needs to be
+                    self.stackTop += frames[fPtr].slotPtr-arity ;
+
+                    println!("Stacktop: {} Arity {}", self.stackTop, arity) ;
 
                     let start = self.stackTop;
 
@@ -120,7 +125,7 @@ impl VM {
                     // off the stack when we pop it off so we set its pointer
                     // back the length of the parameter stack
 
-                    frames[fPtr].slotPtr-= arity ;
+                    frames[fPtr].slotPtr-=arity ;
 
                     // The slice 0 needs to be at the first parameter
 
@@ -131,7 +136,7 @@ impl VM {
                         ip: 0,
                         // The actual pointer needs to already be one position
                         // past the last parameter
-                        slotPtr: locals + arity +1 as usize ,
+                        slotPtr: locals  as usize ,
                         // But the slice begins at 0 where the first parameter is located
                         slots: slot,
                         oldStackTop
@@ -148,10 +153,8 @@ impl VM {
 
         macro_rules! pop_frame {
             () => {
-
                 frames.pop() ;
                 fPtr-=1;
-
                 // Set the stacktop back to where it was before we made the call
                 self.stackTop = frames[fPtr].oldStackTop;
 
@@ -294,6 +297,8 @@ impl VM {
 
         loop {
 
+            //let _ = stdin().read_line(&mut "nada".to_string());
+
             /*** Debug ***/
             print!("          ");
             for slot in 0..frames[fPtr].slotPtr {
@@ -405,7 +410,7 @@ impl VM {
                 OP_SETVAR => {
                     let slot = READ_OPERAND!() as isize;
                     unsafe {
-                        let val = pop!() ;
+                        let val = peek!(0) ;
                         *frames[fPtr].slots.offset(slot) = val;
 
                     }
@@ -563,7 +568,7 @@ impl VM {
                 },
                 OP_CALL => {
 
-                    let args = READ_OPERAND!()  ;
+                    let args = READ_OPERAND!() as usize ;
                     let fnc = get_function!(args) ;
 
                     push_frame!(fnc);
