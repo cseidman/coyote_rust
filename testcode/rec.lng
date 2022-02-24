@@ -1,0 +1,8 @@
+func recurse(x:integer) integer {
+    if x < 2 {
+        return x
+    }
+    return recurse(x-1) + recurse(x-2)
+}
+print recurse(5)
+

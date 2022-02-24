@@ -1,6 +1,6 @@
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::chunk::{Chunk, addStringConstant, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
-use crate::value::{Value};
+use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
+use crate::value::{Value, Property, Class, Visibilty, Function, printValue};
 use crate::scanner::*;
 use TokenType::* ;
 use std::io::{stderr, Write} ;
@@ -11,12 +11,14 @@ use crate::symbol::{SymbolTable, Symbol};
 use crate::errors::InterpretResult ;
 
 use ExpFunctions::* ;
-use crate::debug::{disassembleInstruction, disassembleChunk};
+use crate::debug::{disassembleInstruction, disassembleChunk, disassembleFunctions};
 use std::env::var;
 use std::collections::HashMap;
 
 use crate::ast::JumpPop::{NOPOP, POP};
 use crate::ast::Node::*;
+use std::rc::Rc;
+use crate::value::Value::array;
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -29,6 +31,8 @@ const PREC_FACTOR: u8 = 7 ;     // * /
 const PREC_UNARY: u8 = 8 ;      // ! -
 const PREC_CALL: u8 = 9 ;       // . ()
 const PREC_PRIMARY: u8 = 10 ;
+
+const PRINT_NODES: bool = false ;
 
 #[derive(PartialEq)]
 enum ExpFunctions {
@@ -45,8 +49,11 @@ enum ExpFunctions {
     STRING,
     VARIABLE,
     BLOCKING,
+    ARRAY_BUILD,
+    HASH_BUILD,
     AND,
-    OR
+    OR,
+    CALL
 }
 
 struct Rule {
@@ -63,6 +70,65 @@ impl Rule {
             prec
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Location {
+    pub locations: HashMap<String, Vec<usize>>
+}
+
+impl Location {
+
+    pub fn new() -> Self {
+        Self {
+            locations: HashMap::new()
+        }
+    }
+
+    pub fn addLocation(&mut self, tag: &str, location: usize) -> usize {
+
+        // Initilize a new vector for this tag if it's the
+        // first time we use it
+        if ! self.locations.contains_key(tag) {
+            self.locations.insert(tag.to_string(), Vec::new()) ;
+        }
+
+        self.locations.get_mut(tag).unwrap().push(location) ;
+        location
+
+    }
+
+    pub fn peekLocation(&mut self, tag: &str) -> usize {
+
+        if ! self.locations.contains_key(tag) {
+            panic!("Location tag {} does not exist", tag) ;
+        }
+
+        self.locations.get_mut(tag)
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone()
+
+    }
+
+    pub fn popLocation(&mut self, tag: &str) -> usize {
+
+        if ! self.locations.contains_key(tag) {
+            panic!("Location tag {} does not exist", tag) ;
+        }
+
+        self.locations.get_mut(tag)
+            .unwrap()
+            .pop()
+            .unwrap()
+
+    }
+
+    pub fn hasKey(&self, tag: &str) -> bool {
+        self.locations.contains_key(tag)
+    }
+
 }
 
 pub struct Parser {
@@ -107,16 +173,6 @@ impl Parser {
     }
 }
 
-pub struct IlCode {
-    op: OpCode,
-    operand: Option<u16>,
-    datatype: DataType,
-    comment: String,
-    start: usize,
-    length: u8,
-    line: usize
-}
-
 macro_rules! currentChunk {
     ($self:ident) => {
         &mut $self.chunk
@@ -124,26 +180,31 @@ macro_rules! currentChunk {
 }
 
 pub struct Compiler<'a>  {
-    pub chunk: &'a mut Chunk,
+    chunk: &'a mut Chunk,
     scanner: Scanner ,
     parser: Parser,
-    pub nodes: Vec<Node>,
+    nodes: Vec<Node>,
 
-    pub localCount: usize,
-    pub scopeDepth: usize,
+    localCount: usize,
+    scopeDepth: usize,
 
-    pub jumpifFalse: Vec<usize>,
-    pub jump: Vec<usize>,
-    pub breakjump: Vec<usize>,
-    pub loopDepth: usize,
+    jumpifFalse: Vec<usize>,
+    jump: Vec<usize>,
+    breakjump: Vec<usize>,
+    loopDepth: usize,
 
-    pub ilcode: Vec<IlCode>,
-    pub currentIl: usize
+    //symbTable: SymbolTable,
+
+    locations: Vec<Location>,
+    locationPtr: usize,
+
+    functionStore: &'a mut Vec<Function>,
+    callNodes: Vec<Node>,
 }
 
 impl<'a> Compiler<'a> {
 
-    pub fn new(source: String, chunk: &'a mut Chunk) -> Self {
+    pub fn new(source: String, chunk: &'a mut Chunk, funcStore: &'a mut Vec<Function>) -> Self {
 
         Compiler {
             chunk,
@@ -156,9 +217,14 @@ impl<'a> Compiler<'a> {
             jump: Vec::new(),
             breakjump: Vec::new(),
             loopDepth: 0,
+            //symbTable: SymbolTable::new(),
 
-            ilcode: Vec::new(),
-            currentIl: 0
+            locations: Vec::new(),
+            locationPtr: 0,
+            functionStore: funcStore,
+
+            callNodes: Vec::new()
+
         }
     }
 
@@ -168,6 +234,7 @@ impl<'a> Compiler<'a> {
 
     // Symbol table operations
     pub fn addVariable(&mut self, varname: String, datatype: DataType) -> usize {
+        //self.chunk.locals+=1 ;
         self.chunk.symbTable.addSymbol(varname, datatype)
     }
 
@@ -180,8 +247,55 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    pub fn getFunction(&self, funcName: String) -> Result<usize, String> {
+        let mut loc = 0 ;
+        for f in self.functionStore.clone() {
+
+            if f.name == funcName {
+                return Ok(loc)
+            }
+            loc+=1 ;
+        }
+        let msg = format!("Function '{}' not found", funcName) ;
+        Err(msg)
+    }
+
+    pub fn addFunction(&mut self, f: Function) {
+        // Check that this function doesn't already exist
+        let res = self.getFunction(f.name.clone()) ;
+        match res {
+            Ok(x) => {
+                if self.functionStore[x].isStub {
+                    self.functionStore[x] = f ;
+                } else {
+                    let msg = format!("Function with name: '{}' already exists", f.name) ;
+                    self.errorAtCurrent(&msg) ;
+                }
+            },
+            Err(s)  => {
+                self.functionStore.push(f)
+            }
+        }
+    }
+
+    pub fn addStubFunction(&mut self, funcName: String) -> usize {
+        let f = Function {
+            name: funcName,
+            isStub: true,
+            arity: 0,
+            chunk: Chunk::new(),
+            returnType: DataType::None
+        } ;
+        self.functionStore.push(f) ;
+        self.functionStore.len()-1
+    }
+
     fn nodePush(&mut self, node: Node) {
         self.nodes.push(node) ;
+    }
+
+    fn storeCallNode(&mut self, node: Node) {
+        self.callNodes.push(node) ;
     }
 
     pub fn error(&mut self, message: &str) {
@@ -243,6 +357,95 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    pub fn arrayBuilder(&mut self) {
+        // We already consumed the left bracket
+        let mut arity: usize = 0 ; // Starting off with 0 elements
+        let mut values: Vec<Node> = Vec::new() ;
+
+        let mut elementType = DataType::None ;
+
+        let line = self.parser.previous().line ;
+
+        while ! self.t_match(TOKEN_RIGHT_BRACKET) {
+
+            arity += 1 ;
+            // The value we're adding to the array
+            self.expression() ;
+
+            self.t_match(TOKEN_COMMA) ; // Consume the comma if there is one
+
+            // Pop that value expression from above and put it into the array
+            let node = self.nodes.pop().unwrap();
+
+            // The first value sets the requirement for the value of the remaining elements
+            let curType = node.clone().getDataType() ;
+            if arity == 1 {
+                elementType = curType ;
+            }
+
+            // Make sure the value of this node is the same as the others
+            if elementType != curType {
+                self.errorAtCurrent(
+                    &format!("The array is of type: {:?} but the element [{}] is: {:?}"
+                                            , elementType, arity-1, curType)
+                    )   ;
+            }
+
+            values.push(node) ;
+        }
+
+        let valueType = match elementType {
+            DataType::Integer => DataType::IArray,
+            DataType::Float => DataType::FArray,
+            DataType::String => DataType::SArray,
+            DataType::Bool => DataType::BArray,
+            _ => DataType::None
+        } ;
+
+        self.nodePush(Array {
+            line,
+            arity,
+            valueType,
+            elementType,
+            values
+        }) ;
+    }
+
+    pub fn hashBuilder(&mut self) {
+        // We already consumed the '@['
+
+        let mut keys: Vec<Node> = Vec::new() ;
+        let mut values: Vec<Node> = Vec::new() ;
+
+        let mut arity= 0 ;
+        let line = self.parser.previous().line ;
+
+        while ! self.t_match(TOKEN_RIGHT_BRACKET) {
+
+            arity+=1 ;
+
+            self.expression() ; // The key
+            let key = self.nodes.pop().unwrap();
+            keys.insert(0,key) ;
+
+            self.consume(TOKEN_COLON,"Expect ':' between the key and value") ;
+
+            self.expression() ; // The value
+            let value = self.nodes.pop().unwrap();
+            values.insert(0, value) ;
+
+            self.t_match(TOKEN_COMMA) ; // Get the comma if there is one
+
+        }
+
+        self.nodePush(Dict {
+            line,
+            arity,
+            keys,
+            values
+        }) ;
+    }
+
     fn expression(&mut self) {
         self.parsePrecedence(PREC_ASSIGNMENT) ;
     }
@@ -266,10 +469,72 @@ impl<'a> Compiler<'a> {
     fn endCompiler(&mut self) {
 
         let retVal = self.nodes.pop().unwrap() ;
+        let line = self.parser.previous().line ;
         self.nodePush(Node::Return {
+            line,
             returnVal: Box::new(retVal)
         });
 
+    }
+
+    fn class(&mut self) {
+        let classToken = self.parser.previous();
+        let className = classToken.name ;
+        let line = classToken.line ;
+        let mut properties: Vec<Property> = Vec::new();
+
+        self.consume(TOKEN_LEFT_BRACE, "Expect '{' after the class name") ;
+        while ! self.t_match(TOKEN_RIGHT_BRACE) {
+
+            // Check if we have one of the visibility keywords
+            let mut visibility = Visibilty::public ;
+            if self.t_match(TOKEN_PRIVATE) {
+                visibility = Visibilty::private ;
+            }
+
+            // Now the property name
+            if self.t_match(TOKEN_IDENTIFIER) {
+
+                let propertyName = self.parser.previous().name ;
+
+                // Now check the type starting with the native types
+                self.advance() ;
+                let typeToken = self.parser.previous() ;
+
+                let propertyType = match typeToken.tokenType {
+                    TOKEN_STRING => {DataType::String},
+                    TOKEN_BOOL => {DataType::Bool},
+                    TOKEN_INTEGER => {DataType::Integer},
+                    TOKEN_FLOAT => {DataType::Float},
+                    TOKEN_IDENTIFIER => {DataType::Object},
+                    _ => {
+                        self.errorAtCurrent("Unknown property type") ;
+                        panic!("Unknoxn property type") ;
+                    }
+                };
+
+                // Check if this is an array
+                if self.t_match(TOKEN_LEFT_BRACE) {
+                    // It's an array
+                    self.consume(TOKEN_RIGHT_BRACE, "Expect a ']' after the array size") ;
+                }
+
+                let property = Property {
+                    name: propertyName,
+                    visibility ,
+                    propertyType
+                };
+
+                properties.push(property) ;
+
+            }
+        }
+
+        self.nodePush(class {
+            line,
+            propertyCount: properties.len() ,
+            properties: vec![]
+        }) ;
     }
 
     fn literal(&mut self) {
@@ -277,7 +542,7 @@ impl<'a> Compiler<'a> {
         let label= token.label.to_string();
 
         match token.tokenType {
-            TOKEN_FALSE => self.nodePush(
+           TOKEN_FALSE => self.nodePush(
                 Node::Value {
                     line: token.line,
                     label,
@@ -305,12 +570,12 @@ impl<'a> Compiler<'a> {
     fn text(&mut self) {
         let token = self.parser.previous() ;
         let label = token.name ;
-        let ptr = addStringConstant(self.chunk, label.clone()) as i64;
+
         self.nodePush(
             Node::Value {
                 line: token.line,
-                label,
-                value: Value::integer(ptr),
+                label: label.clone(),
+                value: Value::string(label),
                 dataType: DataType::String
         });
     }
@@ -373,10 +638,12 @@ impl<'a> Compiler<'a> {
     }
 
     fn binary(&mut self) {
+
         let token = self.parser.previous() ;
         let operatorType = token.tokenType ;
         let rule = self.getRule(operatorType) ;
         let prec = rule.prec + 1 ;
+
         self.parsePrecedence(prec) ;
 
         let operator = match operatorType {
@@ -400,12 +667,14 @@ impl<'a> Compiler<'a> {
             lhs: Box::new(self.nodes.pop().unwrap())
         };
         self.nodePush(node);
+
     }
 
     fn getRule(&mut self, tokenType: TokenType) -> Rule {
         match tokenType {
-            TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_NONE),
-            //TOKEN_LEFT_BRACE    => Rule::new(BLOCKING, NONE, PREC_NONE),
+            TOKEN_LEFT_PAREN    => Rule::new(GROUPING, NONE, PREC_CALL),
+            TOKEN_LEFT_BRACKET  => Rule::new(ARRAY_BUILD, NONE, PREC_NONE),
+            TOKEN_AT_BRACKET    => Rule::new(HASH_BUILD, NONE, PREC_NONE),
             TOKEN_MINUS
             | TOKEN_PLUS        => Rule::new(UNARY, BINARY , PREC_TERM),
             TOKEN_SLASH
@@ -442,7 +711,12 @@ impl<'a> Compiler<'a> {
             VARIABLE => self.variable(),
             AND => self.and_(),
             OR => self.or_(),
-            _ => {}
+            ARRAY_BUILD => self.arrayBuilder(),
+            HASH_BUILD => self.hashBuilder(),
+            //CALL => self.call(),
+            _ => {
+                self.error("Binary expression {func} uknown") ;
+            }
          }
     }
 
@@ -469,75 +743,95 @@ impl<'a> Compiler<'a> {
     }
 
     fn printStatement(&mut self) {
+        let line = self.parser.previous().line ;
         self.expression();
         let printExpr = self.nodes.pop().unwrap() ;
         self.nodePush(Node::Print {
+            line,
             printExpr: Box::new(printExpr)
         })
     }
 
     fn and_(&mut self) {
+        let line = self.parser.previous().line ;
         self.parsePrecedence(PREC_AND);
         let node =  self.nodes.pop().unwrap() ;
         self.nodes.push(And {
+            line,
             expr: Box::new(node)
         }) ;
     }
 
     fn or_(&mut self) {
+        let line = self.parser.previous().line ;
         self.parsePrecedence(PREC_OR);
-
+        let node =  self.nodes.pop().unwrap() ;
+        self.nodes.push(Or {
+            line,
+            expr: Box::new(node)
+        }) ;
     }
 
     fn ifStatement(&mut self) {
-        // The IF condition
-        self.expression() ;
-        let conditional = self.nodes.pop().unwrap() ;
-
+        let mut conditional: Vec<Node> = Vec::new() ;
         self.nodePush(Node::If);
-        // This is what we find inside the IF block (this includes
-        // the 'else' statement)
-        self.declaration();
+
+        // This is the logical condition
+        let nodePosition = self.nodes.len()-1 ;
+        self.expression() ;
+
+        loop {
+            let curNode = self.nodes.last().unwrap().clone();
+            let curPos = self.nodes.len() -1 ;
+            if nodePosition == curPos {
+                break;
+            }
+            conditional.insert(0,self.nodes.pop().unwrap()) ;
+        }
 
         // Load the statements here
-        let mut thenNodes: Vec<Node> = Vec::new() ;
-        let mut elseNodes: Vec<Node> = Vec::new() ;
-
-        let mut thereIsAnElse = false ;
+        let mut nodes: Vec<Node> = Vec::new() ;
+        let nodePosition = self.nodes.len()-1 ;
+        self.statement() ;
 
         loop {
             let curNode = self.nodes.last().unwrap().clone();
             // Since we're popping the values off the node stack, we know
-            // that we need to stop at the IF statement
-            thenNodes.insert(0,self.nodes.pop().unwrap()) ;
-            if curNode == Node::If {
+            // that we need to stop at the ELSE statement
+            let curPos = self.nodes.len() -1 ;
+            if nodePosition == curPos {
                 break;
             }
+            nodes.insert(0,self.nodes.pop().unwrap()) ;
         }
-        // Capture the "ELSE" if there is one
-        self.declaration() ;
 
-        // If we hit an 'else' node, then that means that
-        if self.nodes.last().unwrap().clone() == Node::Else {
-            thereIsAnElse = true ;
-            self.declaration() ;
+        let mut hasElse = false ;
+        let mut elsenodes: Vec<Node> = Vec::new() ;
+        if self.t_match(TOKEN_ELSE) {
+
+            hasElse = true ;
+
+            let nodePosition = self.nodes.len()-1 ;
+            self.statement();
 
             loop {
                 let curNode = self.nodes.last().unwrap().clone();
                 // Since we're popping the values off the node stack, we know
-                // that we need to stop at the IF statement
-                elseNodes.insert(0,self.nodes.pop().unwrap()) ;
-                if curNode == Node::Else {
+                // that we need to stop at the ELSE statement
+                let curPos = self.nodes.len() -1 ;
+                if nodePosition == curPos {
                     break;
                 }
+                elsenodes.insert(0,self.nodes.pop().unwrap()) ;
             }
+
         }
 
         let ifNode = Node::Endif {
-            condition: Box::new(conditional),
-            thenStatements: thenNodes,
-            elseStatements: elseNodes,
-            hasElse: thereIsAnElse
+            hasElse,
+            condition: conditional,
+            statements: nodes,
+            elsenode: elsenodes
         } ;
 
         self.nodePush(ifNode) ;
@@ -545,41 +839,54 @@ impl<'a> Compiler<'a> {
 
     fn whileStatement(&mut self) {
 
+        self.pushScope() ;
         let mut conditional: Vec<Node> = Vec::new() ;
+        let line = self.parser.previous().line ;
+        // Signals the beginning of the while
         self.nodePush(Node::While);
 
+        let nodePosition = self.nodes.len()-1 ;
+
+        // This is the logical expression
         self.expression() ;
+
+        // Conditional Statements since the expression above
+        // could be made up of compound statements
         loop {
 
+            // Get the next node generated from the above
             let curNode = self.nodes.last().unwrap().clone();
-            if curNode == Node::While {
+
+            // If after popping the statements above, we find the
+            let curPos = self.nodes.len() -1 ;
+            if nodePosition == curPos {
                 break;
             }
             conditional.insert(0,self.nodes.pop().unwrap()) ;
         }
 
-        self.declaration();
+        let nodePosition = self.nodes.len()-1 ;
+        self.statement();
         let mut nodes: Vec<Node> = Vec::new() ;
 
         loop {
             let curNode = self.nodes.last().unwrap().clone();
-            if curNode == Node::While {
+            let curPos = self.nodes.len() -1 ;
+            if nodePosition == curPos {
                 break;
             }
             nodes.insert(0,self.nodes.pop().unwrap()) ;
         }
 
         let whileNode = Node::EndWhile {
+            line,
             condition: conditional,
             statements: nodes
         } ;
 
+        self.popScope() ;
         self.nodePush(whileNode) ;
 
-    }
-
-    fn elseStatement(&mut self) {
-        self.nodePush(Node::Else);
     }
 
     fn breakStatement(&mut self) {
@@ -587,7 +894,19 @@ impl<'a> Compiler<'a> {
     }
 
     fn continueStatement(&mut self) {
+        self.nodePush(Node::Continue);
+    }
 
+    fn returnStatement(&mut self) {
+
+        let line = self.parser.previous().line ;
+        self.expression() ;
+        let node = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::Return {
+            line ,
+            returnVal: Box::new(node)
+        })
     }
 
     fn beginScope(&mut self) {
@@ -613,37 +932,221 @@ impl<'a> Compiler<'a> {
             self.breakStatement();
         } else if self.t_match(TOKEN_CONTINUE) {
             self.continueStatement();
-        } else if self.t_match(TOKEN_ELSE) {
-            self.elseStatement() ;
+        } else if self.t_match(TOKEN_RETURN) {
+            self.returnStatement();
         } else {
             self.expression();
         }
     }
 
+    fn declaration(&mut self) {
+        if self.t_match(TOKEN_VAR) {
+            self.varDeclaration();
+        } else if self.t_match(TOKEN_FUN) {
+            self.funcDeclaration() ;
+        } else {
+            self.statement();
+        }
+    }
+
     // *** Variable management **
+
+    fn assignValueToVar(&mut self, varname: String) {
+        let line = self.parser.previous().line ;
+        self.expression() ;
+
+        let childVal = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::setVar {
+            line,
+            name: varname,
+            datatype: childVal.clone().getDataType(),
+            child: Box::new(childVal)
+        });
+    }
+
+    fn assignValueToArray(&mut self, varname: String,n: Node) {
+        let line = self.parser.previous().line ;
+        // The value we're about to assign
+        self.expression() ;
+        let childVal = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::setArray {
+            line,
+            name: varname,
+            index: Box::new(n),
+            child: Box::new(childVal)
+        });
+    }
+
+    fn assignValueToHash(&mut self, varname: String,n: Node) {
+        let line = self.parser.previous().line ;
+        // The value we're about to assign
+        self.expression() ;
+        let childVal = self.nodes.pop().unwrap() ;
+
+        self.nodePush(Node::setHash {
+            line,
+            name: varname,
+            key: Box::new(n),
+            child: Box::new(childVal)
+        });
+    }
+
+    fn namedHashKey(&mut self, varname: String) {
+
+        let line = self.parser.previous().line ;
+
+        // If we have this, then it means that we're referring to
+        // a hash key
+
+        self.expression() ; // Key expression
+        self.consume(TOKEN_RIGHT_BRACKET, "Expect ']' after hash element expression");
+
+        // Tells us which element in the hash we're looking for
+        let keyExpr = self.nodes.pop().unwrap() ;
+
+        if self.t_match(TOKEN_EQUAL) {
+            // This is the value we're assigning
+            self.assignValueToHash(varname, keyExpr) ;
+
+        } else {
+            // If not, then it's being used as an expression
+
+            let node = Node::namedHash {
+                line,
+                name: varname,
+                key: Box::new(keyExpr),
+            };
+            self.nodePush(node);
+        }
+
+    }
+
+    fn namedArrayElement(&mut self, varname: String) {
+        let line = self.parser.previous().line ;
+        // If we have this, then it means that we're referring to
+        // an array element. This next expression gives us the element number
+        self.expression() ;
+        self.consume(TOKEN_RIGHT_BRACKET, "Expect ']' after array element expression");
+
+        // Tells us which element in the array we're looking for. We grab the node that
+        // contains the above expression
+        let indexExpr = self.nodes.pop().unwrap() ;
+
+        // If this isn't a number, we should abort
+        if indexExpr.clone().getDataType() != DataType::Integer {
+            self.errorAtCurrent("The array element must be an integer");
+        }
+
+        if self.t_match(TOKEN_EQUAL) {
+            // This is the value we're assigning
+            self.assignValueToArray(varname, indexExpr) ;
+
+        } else {
+            // If not, then it's being used as an expression
+            let node = Node::namedArray {
+                line,
+                name: varname,
+                index: Box::new(indexExpr)
+            };
+            self.nodePush(node);
+        }
+    }
+
+    fn namedSingleVariable(&mut self, varname: String) {
+        let line = self.parser.previous().line ;
+        // This means we're assigning a value
+        if self.t_match(TOKEN_EQUAL) {
+            self.assignValueToVar(varname) ;
+        } else {
+            // If not, then it's being used as an expression
+            let node = Node::namedVar {
+                line,
+                name: varname
+            };
+            self.nodePush(node);
+        }
+    }
+
+    fn namedFunction(&mut self, funcName: String) {
+        let line = self.parser.previous().line ;
+
+        // Load the fully assigned call command on to the stack ..
+
+        // First we get the index of the function
+        let func_result = self.getFunction(funcName.clone()) ;
+        let mut func_index: usize = 0;
+        match func_result {
+            Ok(f) => {
+                func_index = f ;
+            },
+            Err(e) => {
+                self.error(&e) ;
+            }
+        }
+        // We load the function here so as to obtain the expected arity and the
+        // return type
+        let oFunc = self.functionStore[func_index].clone();
+
+        let returnType = oFunc.returnType;
+        let arity = oFunc.arity ;
+
+        // Collect the parameters that should already be there when someone
+        // calls the function
+        let mut pcount = 0 ;
+        let mut params: Vec<Node> = Vec::new() ;
+        while !self.t_match(TOKEN_RIGHT_PAREN) {
+            if pcount > 0 {
+                self.consume(TOKEN_COMMA, "Expect comma after parameter") ;
+            }
+            pcount+=1 ;
+            self.expression() ;
+            params.push(self.nodes.pop().unwrap()) ;
+        }
+
+        if pcount != oFunc.arity {
+            self.errorAtCurrent(&format!("Function {} requires {} parameters, but you supplied {}",
+                                        funcName,
+                                        oFunc.arity,
+                                        pcount));
+        }
+
+        let ncall = Node::call {
+            line,
+            params,
+            func: funcName
+        };
+
+        self.nodePush(ncall) ;
+
+    }
 
     fn namedVariable(&mut self) {
 
         // This is the variable name we just encountered
         let varname = self.parser.previous().name ;
-        if self.t_match(TOKEN_EQUAL) {
-            self.expression() ;
 
-            let childVal = self.nodes.pop().unwrap() ;
-
-            self.nodePush(Node::setVar {
-                name: varname,
-                datatype: DataType::None,
-                child: Box::new(childVal)
-            });
-
-        } else {
-            // If not, then it's being used as an expression
-            let node = Node::namedVar {
-                name: varname
-            };
-            self.nodePush(node);
+        // Check if it's a function
+        if self.t_match(TOKEN_LEFT_PAREN) {
+            self.namedFunction(varname) ;
+            return ;
         }
+
+        // Check if it's an array
+        if self.t_match(TOKEN_LEFT_BRACKET) {
+            self.namedArrayElement(varname) ;
+            return
+        }
+
+        // Check if it's a hash
+        if self.t_match(TOKEN_AT_BRACKET) {
+            self.namedHashKey(varname) ;
+            return
+        }
+
+        // If we got here, then it means it's a variable
+        self.namedSingleVariable(varname) ;
     }
 
     fn variable(&mut self) {
@@ -651,9 +1154,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn varDeclaration(&mut self) {
-
-        // This is the location of the variable in the constants table we just allocated
+        let line = self.parser.previous().line ;
         self.advance();
+
         let token = self.parser.previous() ;
         let varname = token.name ;
         let mut isAssigned = false ;
@@ -671,13 +1174,16 @@ impl<'a> Compiler<'a> {
                     dataType: DataType::Nil
                 })
         }
-
+        // This is the expression that gets assigned to the variable
         let declExpr = self.nodes.pop().unwrap() ;
+
         let node = Node::VarDecl {
-            name: varname,
+            line,
+            name: varname.clone(),
             assigned: isAssigned,
             varExpr: Box::new(declExpr)
         };
+
         self.nodePush(node);
 
     }
@@ -687,12 +1193,95 @@ impl<'a> Compiler<'a> {
         self.namedVariable() ;
     }
 
-    fn declaration(&mut self) {
-        if self.t_match(TOKEN_VAR) {
-            self.varDeclaration() ;
-        } else {
-            self.statement();
+
+
+    fn match_declared_type(&mut self) -> DataType {
+        if self.t_match(TOKEN_DATA_TYPE(TokenData::STRING)) {
+            return DataType::String
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::INTEGER)) {
+            return DataType::Integer
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::FLOAT)) {
+            return DataType::Float
+        } else if self.t_match(TOKEN_DATA_TYPE(TokenData::BOOL)) {
+            return DataType::Bool
+        }  else if self.t_match(TOKEN_IDENTIFIER) {
+            //
         }
+        DataType::None
+    }
+
+    fn makeParameter(&mut self) -> Node {
+
+        let line = self.parser.previous().line ;
+
+        // Name of the parameter variable
+        self.consume(TOKEN_IDENTIFIER, "Expect parameter name after '('") ;
+        let name = self.parser.previous().name ;
+        // Type of parameter
+        self.consume(TOKEN_COLON, "Expect ':' after parameter name") ;
+
+        let dataType = self.match_declared_type();
+
+        Node::parameter {
+            line ,
+            name ,
+            dataType
+        }
+
+    }
+
+    fn funcDeclaration(&mut self) {
+
+        let line = self.parser.previous().line ;
+
+        // We consumed 'func' already. Now we need to get the name of the
+        // function itself
+        self.consume(TOKEN_IDENTIFIER, "Expect a function name after 'func'") ;
+        let funcName = self.parser.previous().name ;
+        let loc = self.addStubFunction(funcName.clone());
+
+        let mut arity: u16 = 0 ;
+
+        let msg = format!("Expect a '(' after the function {}", funcName) ;
+        self.consume(TOKEN_LEFT_PAREN, &msg) ;
+
+        let mut parameters: Vec<Node> = Vec::new() ;
+        while ! self.t_match(TOKEN_RIGHT_PAREN) {
+            // Count the number of parameters
+            arity+=1 ;
+            let p = self.makeParameter() ;
+            parameters.push(p) ;
+            self.t_match(TOKEN_COMMA) ;
+        }
+
+        // See if there is a return type
+        let returnType = self.match_declared_type() ;
+
+        // Now grab the statements inside the function
+        let mut statements = Vec::new() ;
+
+        self.functionStore[loc].arity = arity ;
+        self.functionStore[loc].returnType = returnType ;
+        self.functionStore[loc].isStub = false ;
+
+        // This needs to begin with a brace
+        self.consume(TOKEN_LEFT_BRACE, "Expect a '{' after the function header") ;
+        while ! self.t_match(TOKEN_RIGHT_BRACE) {
+            self.declaration() ;
+            let statement = self.nodes.pop().unwrap() ;
+            statements.push( statement) ;
+        }
+
+        let funcNode = Node::function {
+            line,
+            name: funcName.clone(),
+            arity,
+            parameters,
+            statements,
+            returnType
+        };
+        //self.nodePush(funcNode);
+        self.walkTree(funcNode);
     }
 
     pub fn view_tree(&self) {
@@ -710,18 +1299,22 @@ impl<'a> Compiler<'a> {
             }
             self.declaration();
         }
-
         self.endCompiler() ;
 
         let tree = self.nodes.clone() ;
         let startNode = Node::Root {
             children: tree
         };
+
+
         self.nodes = vec![startNode];
-        self.walkTree(self.nodes[0].clone(), 1) ;
+        self.walkTree(self.nodes[0].clone()) ;
+
+        // Show the functions
+        disassembleFunctions(&self.functionStore, "functions" ) ;
 
         //if self.parser.hadError {
-            disassembleChunk(self.chunk, "code") ;
+        disassembleChunk(self.chunk, "code") ;
         //}
 
         let result = self.parser.hadError ;
@@ -731,7 +1324,80 @@ impl<'a> Compiler<'a> {
 
     /** AST Operations **/
 
-    pub fn walkTree(&mut self, node: Node, level: usize) -> DataType {
+    pub fn generateBreakStatement(&mut self) {
+        if self.loopDepth == 0 {
+            self.errorAtAst("BREAK statement must be inside a loop", 0);
+        }
+
+        // Jump to the end of the parent loop
+        writeChunk(self.chunk, OP_JUMP as u8, 0);
+        self.addLocation("innerbreak");
+        writeu16Chunk(self.chunk, 9999_u16, 0);
+    }
+
+    pub fn generateContinueStatement(&mut self) {
+        if self.loopDepth == 0 {
+            self.errorAtAst("BREAK statement must be inside a loop", 0);
+        }
+
+        writeChunk(self.chunk, OP_LOOP as u8, 0);
+        let loc = currentLocation(self.chunk) ;
+        let inner = self.popLocation("innercontinue") ;
+
+        let continueTo = loc - inner+2;
+        writeu16Chunk(self.chunk, continueTo as u16, 0);
+    }
+
+    // Location management for control of flow statements
+
+    pub fn pushScope(&mut self) {
+        self.locations.push(Location::new()) ;
+        self.locationPtr+=1
+    }
+
+    pub fn popScope(&mut self) {
+        self.locations.pop() ;
+        self.locationPtr-=1 ;
+    }
+
+    pub fn backpatchInner(&mut self, tag: &str) {
+        let ptr = self.locationPtr-1 ;
+        if self.locations[ptr].locations.contains_key(tag) {
+            for b in self.locations[ptr].locations[tag].clone() {
+                backPatch(self.chunk, b);
+            }
+        }
+    }
+
+    pub fn addLocation(&mut self, tag: &str) -> usize {
+        let location = currentLocation(self.chunk) ;
+        self.addSpecificLocation(tag, location)
+    }
+
+    pub fn addSpecificLocation(&mut self, tag: &str, location: usize) -> usize {
+
+        let ptr = self.locationPtr-1 ;
+
+        self.locations[ptr].addLocation(tag, location);
+        location
+    }
+
+    pub fn peekLocation(&mut self, tag: &str) -> usize {
+
+        let ptr = self.locationPtr-1 ;
+        self.locations[ptr].peekLocation(tag)
+
+    }
+
+    pub fn popLocation(&mut self, tag: &str) -> usize {
+
+        let ptr = self.locationPtr-1 ;
+        self.locations[ptr].popLocation(tag)
+
+    }
+
+    // Walk tree
+    pub fn walkTree(&mut self, node: Node) -> DataType {
 
         macro_rules! writeOp {
             ($byte:expr, $line:expr) => {
@@ -748,7 +1414,7 @@ impl<'a> Compiler<'a> {
         match node {
             Node::Root { children: nodes } => {
                 for n in nodes {
-                    self.walkTree(n, level);
+                    self.walkTree(n);
                 }
                 DataType::None
             }
@@ -758,7 +1424,7 @@ impl<'a> Compiler<'a> {
                         writeOp!(OP_NIL, line);
                     },
                     DataType::String => {
-                        let constant_index = value.get_integer() as u16;
+                        let constant_index = self.makeConstant(value);
 
                         writeOp!(OP_SCONSTANT, line);
                         writeOperand!(constant_index);
@@ -772,19 +1438,120 @@ impl<'a> Compiler<'a> {
                 dataType
             },
 
+            Node::Dict {
+                line,
+                arity,
+                keys,
+                values
+            } => {
+
+                let mut elements= 0 ;
+                for k in keys {
+                    let v = values[elements].clone();
+
+                    let keyType = self.walkTree(k) ;
+                    let valType = self.walkTree(v) ;
+
+                    elements+=1 ;
+                }
+
+                writeOp!(OP_PUSH, line);
+                writeOperand!(elements as u16);
+
+                writeOp!(OP_NEWDICT, line) ;
+
+                DataType::Dict
+            },
+
+            Node::namedHash {
+                line,
+                name,
+                key
+            } => {
+                let symbol = self.getVariable(name.clone()) ;
+                // The index of the array
+                let keyType = self.walkTree(*key, ) ;
+
+                writeOp!(OP_GETHELEMENT, line);
+                writeOperand!(symbol.location as u16);
+
+                symbol.datatype
+            },
+
+            Node::setHash {
+                line,
+                name,
+                key,
+                child
+            } => {
+                // The stack should contain:
+                // -- key
+                // -- Value
+                // Then OP_SETHELEMENT first pops index off the stack to get to the element
+                // followed by popping the value we're assigning to the variable
+
+                let symbol = self.getVariable(name.clone()) ;
+
+                // The value we're assigning
+                let valueDataType = self.walkTree(*child);
+
+                // The hash key
+                let keyType = self.walkTree(*key) ;
+
+                // Todo: Check that the variable type matches the value type
+
+                writeOp!(OP_SETHELEMENT, line);
+                writeOperand!(symbol.location as u16);
+
+                valueDataType
+            },
+
+            Node::Array {
+                line,
+                arity,
+                valueType,
+                elementType,
+                values
+            } => {
+
+                let mut elements:u16 = 0 ;
+
+                for n in values {
+                    elements+=1 ;
+                    let curType = self.walkTree(n) ;
+                    if  curType != elementType {
+                        let msg = format!("Array is of type {:?} but element [{}] is of type {:?}", valueType, elements-1, curType);
+                        self.errorAtAst(&msg, 0) ;
+                    }
+                }
+
+                // Push the arity
+                writeOp!(OP_PUSH, line);
+                writeOperand!(elements);
+
+                // Push the datatype of the array elements
+                writeOp!(OP_PUSH, line) ;
+                writeOperand!(elementType.to_operand());
+
+
+                writeOp!(OP_NEWARRAY, line) ;
+
+                valueType
+
+            },
+
             Node::BinaryExpr {
                 line,
                 op,
                 lhs,
                 rhs
             } => {
-
-                let mut l_type = self.walkTree(*lhs, level + 2);
-                let r_type = self.walkTree(*rhs, level + 2);
+                let mut l_type = self.walkTree(*lhs);
+                let r_type = self.walkTree(*rhs );
 
                 if l_type != r_type {
                     match (l_type, r_type) {
-                        (DataType::Float, DataType::Integer) => {},
+                        //(DataType::Float, DataType::Integer) => {},
                         (DataType::Integer, DataType::Float) => {
                             l_type = DataType::Float
                         },
@@ -796,7 +1563,9 @@ impl<'a> Compiler<'a> {
                     }
                 }
 
-                match format!("{}{}", l_type.emit(), op.emit()).as_str() {
+                let operatorString = format!("{}{}", l_type.emit(), op.emit()) ;
+
+                match  operatorString.as_str() {
                     "IADD" => {writeOp!(OP_IADD, line); DataType::Integer},
                     "ISUB" => {writeOp!(OP_ISUBTRACT, line);DataType::Integer},
                     "IMUL" => {writeOp!(OP_IMULTIPLY, line);DataType::Integer},
@@ -832,14 +1601,15 @@ impl<'a> Compiler<'a> {
                     "SLTEQ"  => {writeOp!(OP_SLTEQ, line);DataType::Bool},
 
                     _ => {
-                        self.errorAtCurrent("Binary operator not found!");
+                        let msg = format!("Binary operator '{}' not found!", operatorString) ;
+                        self.errorAtCurrent(&msg);
                         DataType::None
                     }
                 }
             },
 
             Node::UnaryExpr { line, op, child } => {
-                let dataType = self.walkTree(*child, level + 2);
+                let dataType = self.walkTree(*child, );
 
                 match op {
                     Operator::Minus => {
@@ -850,79 +1620,198 @@ impl<'a> Compiler<'a> {
                             DataType::Float => {
                                 writeOp!(OP_FNEGATE, line) ;
                             },
-                            _ => {}
+                            _ => {
+                                self.errorAtAst("Can only negate integer or float expressions", line);
+                            }
                         }
                     },
-                    Operator::Plus => {},
-                    _ => {}
+                    Operator::Plus => {
+
+                    },
+                    _ => {
+                        self.errorAtAst("Wrong unaryt expression", line);
+                    }
                 }
                 dataType
             },
 
             Node::VarDecl {
+                line,
                 name,
                 assigned,
                 varExpr
             } => {
-                let datatype = self.walkTree(*varExpr, level + 2);
-                let loc = self.addVariable(name, datatype) ;
-                writeOp!(OP_SETVAR, 0);
+                let datatype = self.walkTree(*varExpr, );
+                let loc = self.addVariable(name.clone(), datatype) ;
+                writeOp!(OP_SETVAR, line);
                 writeOperand!(loc as u16);
 
                 datatype
             },
 
+            Node::class {
+                line,
+                propertyCount,
+                properties
+            } => {
+
+                DataType::Object
+            },
+
+            Node::setArray {
+                line,
+                name,
+                index,
+                child
+            } => {
+
+                // The stack should contain:
+                // -- index
+                // -- Value
+                // Then OP_xSETAELEMENT first pops index off the stack to get to the element
+                // followed by popping the value we're assigning to the variable
+
+                let symbol = self.getVariable(name.clone()) ;
+                let arrayValueType = symbol.datatype ;
+
+                // The value we're assigning
+                let valueDataType = self.walkTree(*child, );
+
+                // The index of the array
+                let indexType = self.walkTree(*index, ) ;
+
+                match arrayValueType {
+                    DataType::IArray => if valueDataType != DataType::Integer {
+                       self.errorAtCurrent(&format!("Cannot assign a value type {:?} to an integer array", valueDataType))
+                    },
+                    DataType::FArray => if valueDataType != DataType::Float {
+                        self.errorAtCurrent(&format!("Cannot assign a value type {:?} to a float array", valueDataType))
+                    },
+                    DataType::SArray => if valueDataType != DataType::String {
+                        self.errorAtCurrent(&format!("Cannot assign a value type {:?} to an String array", valueDataType))
+                    },
+                    DataType::BArray => if valueDataType != DataType::Bool {
+                        self.errorAtCurrent(&format!("Cannot assign a value type {:?} to a Bool array", valueDataType))
+                    },
+                    _ => panic!("Unknown array value type {:?}", valueDataType)
+                };
+
+                let opcode = match arrayValueType {
+                    DataType::IArray => OP_ISETAELEMENT,
+                    DataType::FArray => OP_FSETAELEMENT,
+                    DataType::SArray => OP_SSETAELEMENT,
+                    DataType::BArray => OP_BSETAELEMENT,
+                    _ => panic!("Unknown array value type {:?}", valueDataType)
+                };
+
+                writeOp!(opcode, line);
+                writeOperand!(symbol.location as u16);
+
+                valueDataType
+
+            } ,
+
+            Node::namedArray {
+                line,
+                name,
+                index
+            } => {
+                let symbol = self.getVariable(name.clone()) ;
+                let arrayValueType = symbol.datatype ;
+                // The index of the array
+                let indexType = self.walkTree(*index, ) ;
+
+                let opcode = match arrayValueType {
+                    DataType::IArray => OP_IGETAELEMENT,
+                    DataType::FArray => OP_FGETAELEMENT,
+                    DataType::SArray => OP_SGETAELEMENT,
+                    DataType::BArray => OP_BGETAELEMENT,
+                    _ => panic!("Unknown array value type")
+                };
+
+                let elementType = match arrayValueType {
+                    DataType::IArray => DataType::Integer,
+                    DataType::FArray => DataType::Float,
+                    DataType::SArray => DataType::String,
+                    DataType::BArray => DataType::Bool,
+                    _ => panic!("Unknown array value type")
+                };
+
+
+                writeOp!(opcode, line);
+                writeOperand!(symbol.location as u16);
+
+                elementType
+            } ,
+
             Node::setVar {
+                line,
                 name,
                 datatype,
                 child
             } => {
-                let symbol = self.getVariable(name) ;
-                let valueDataType = self.walkTree(*child, level + 2);
 
-                let mut varType = datatype ;
+                let symbol = self.getVariable(name.clone()) ;
+                let valueDataType = self.walkTree(*child);
+
+                let mut varType = symbol.datatype ;
                 if varType == DataType::None {
                     varType = valueDataType;
                 }
-                // Todo: Check that the variable type matches the value type
 
-                writeOp!(OP_SETVAR, 0);
+                // Make sure we don't set a value incompatible with the storage
+                // type of the variable
+                if varType != valueDataType {
+                    let msg = format!("Variable is of type {:?} and value is of type {:?}",
+                                      varType, valueDataType);
+                    self.errorAtCurrent(&msg) ;
+                }
+
+                writeOp!(OP_SETVAR, line);
                 writeOperand!(symbol.location as u16);
 
                 varType
             },
 
             Node::namedVar {
+                line,
                 name
             } => {
 
-                let symbol = self.getVariable(name) ;
-
-                writeOp!(OP_LOADVAR, 0);
+                let symbol = self.getVariable(name.clone()) ;
+                writeOp!(OP_LOADVAR, line);
                 writeOperand!(symbol.location as u16);
 
                 symbol.datatype
             },
 
             Node::Block => {
+
                 self.chunk.symbTable.pushLevel();
                 DataType::None
             },
 
             Node::EndBlock => {
+                self.chunk.locals = self.chunk.symbTable.varCount() ;
+                for _ in 0..self.chunk.symbTable.varCount() {
+                     writeOp!(OP_POP,0) ;
+                }
                 self.chunk.symbTable.popLevel();
                 DataType::None
             },
 
             Node::And {
+                line,
                 expr
             } => {
-
-                writeOp!(OP_JUMP_IF_FALSE_NOPOP,0) ;
+                writeOp!(OP_JUMP_IF_FALSE_NOPOP,line) ;
                 let loc = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
                 writeOp!(OP_POP,0) ;
-                self.walkTree(*expr, level + 2 );
+
+                if self.walkTree(*expr,  ) != DataType::Bool {
+                    self.errorAtAst("Condition on the right of AND must evaluate to True or False", 0);
+                }
 
                 backPatch(self.chunk, loc ) ;
 
@@ -930,9 +1819,10 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Or {
+                line,
                 expr
             } => {
-                writeOp!(OP_JUMP_IF_FALSE_NOPOP,0) ;
+                writeOp!(OP_JUMP_IF_FALSE_NOPOP,line) ;
                 let loc = currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
 
@@ -943,111 +1833,140 @@ impl<'a> Compiler<'a> {
                 backPatch(self.chunk, loc) ;
                 writeOp!(OP_POP,0) ;
 
-                self.walkTree(*expr, level + 2 );
+                if self.walkTree(*expr,  ) != DataType::Bool {
+                    self.errorAtAst("Condition on the right of OR must evaluate to True or False", 0);
+                }
 
                 backPatch(self.chunk, jmp ) ;
                 DataType::Bool
             },
 
             Node::Print {
+                line,
                 printExpr
             } => {
-                let datatype = self.walkTree(*printExpr, level + 2);
+                let datatype = self.walkTree(*printExpr);
                 match datatype {
-                    DataType::String => writeOp!(OP_SPRINT,0),
-                    _ => writeOp!(OP_PRINT,0)
+                    DataType::String => writeOp!(OP_SPRINT,line),
+                    _ => writeOp!(OP_PRINT,line)
                 }
                 datatype
             },
 
             Node::Return {
+                line,
                 returnVal
             } => {
-                let datatype = self.walkTree(*returnVal, level + 2);
-                writeOp!(OP_RETURN,0);
+                let datatype = self.walkTree(*returnVal);
+                writeOp!(OP_RETURN,line);
                 datatype
             },
 
             Node::Break => {
-
-                if self.loopDepth == 0 {
-                    self.errorAtAst("'break' must be inside a loop", 0) ;
-                }
-
-                writeOp!(OP_JUMP, 0);
-                let loc = currentLocation(self.chunk) ;
-                writeOperand!(9999_u16) ;
-
-                self.jump.push(loc) ;
                 DataType::None
-
             },
 
             Node::Continue => {
                 DataType::None
             },
             Node::If => {
+                //self.chunk.pushScope() ;
                 DataType::None
             },
 
             Node::Endif {
+                hasElse,
                 condition,
-                thenStatements,
-                elseStatements,
-                hasElse
+                statements,
+                elsenode
             } => {
-                // Execute the condition
 
-                let conditionDataType = self.walkTree(*condition, level + 2);
-
-                if conditionDataType != DataType::Bool {
-                    //self.errorAtAst("'if' condition must evaluate to true or false", 0);
+                // Collect all the logical condition expressions
+                for e in condition {
+                    let dataType = self.walkTree(e,  ) ;
+                    if dataType != DataType::Bool {
+                        self.errorAtAst("IF condition must evaluate to True or False", 0) ;
+                    }
                 }
 
                 // We jump from here if the IF resolves to FALSE
                 writeOp!(OP_JUMP_IF_FALSE, 0) ;
-                let jumpFromLocation = currentLocation(self.chunk);
+                // If it's false we need to jump to the end of this block
+                let jumpFromLocation =  currentLocation(self.chunk);
                 writeOperand!(9999_u16) ;
 
-                for n in thenStatements {
-                    self.walkTree(n, level +2);
-                }
+                // The commands that execute if the statement is true
+                for n in statements {
 
-                let mut afterElseLoc = 0 ;
-
-                // After the THEN, we skip straight to the
-                // end if there is an ELSE. If not, just keep going
-
-                if hasElse {
-
-                    writeOp!(OP_JUMP, 0) ;
-                    afterElseLoc = currentLocation(self.chunk);
-                    writeOperand!(9999_u16) ;
-                    backPatch(self.chunk, jumpFromLocation) ;
-
-                    for n in elseStatements {
-                        self.walkTree(n, level +2);
+                    if n == Node::Break {
+                        self.generateBreakStatement() ;
                     }
+
+                    if n == Node::Continue {
+                        self.generateContinueStatement() ;
+                    }
+
+                    self.walkTree(n);
+
+                }
+
+                let mut afterElseJump = 0 ;
+
+                if hasElse {
+
+                    // If the condition was true, we jump from here
+                    writeOp!(OP_JUMP, 0) ;
+                    afterElseJump = currentLocation(self.chunk);
+                    writeOperand!(9999_u16);
+
+                    // If there was an else, and the condition was false,
+                    // we wind up here
+                    backPatch(self.chunk, jumpFromLocation);
+
+                    for n in elsenode {
+
+                        if n == Node::Break {
+                            self.generateBreakStatement() ;
+                        }
+
+                        if n == Node::Continue {
+                           self.generateContinueStatement() ;
+                        }
+
+                        self.walkTree(n, );
+                    }
+
                 } else {
-                    backPatch(self.chunk, jumpFromLocation) ;
+                    // If this has no ELSE, this is where the false condition
+                    // lands you
+                    backPatch(self.chunk, jumpFromLocation);
                 }
 
                 if hasElse {
-                    backPatch(self.chunk, afterElseLoc);
+                    backPatch(self.chunk, afterElseJump);
                 }
-
+                //self.chunk.popScope() ;
                 DataType::None
-            }
+            },
 
             Node::EndWhile {
+                line,
                 condition,
                 statements
             } => {
 
-                let beginLocation = currentLocation(self.chunk);
+                self.loopDepth+=1 ;
+                self.pushScope() ;
 
+                let beginLocation = currentLocation(self.chunk);
+                self.addLocation("innercontinue") ;
+
+                // Collect all the logical condition expressions
                 for e in condition {
-                    self.walkTree(e, level + 2 );
+                    let dataType = self.walkTree(e,  ) ;
+                    if dataType != DataType::Bool {
+                        self.errorAtAst("WHILE condition must evaluate to True or False", 0) ;
+                    }
                 }
 
                 // We should have a logical value on the stack here
@@ -1057,44 +1976,136 @@ impl<'a> Compiler<'a> {
 
                 writeOp!(OP_POP, 0) ;
 
-                let mut breaks: Vec<usize> = Vec::new();
+                // All the statements inside the WHILE block
                 for n in statements {
+
                     if n == Node::Break {
-                        breaks.push(currentLocation(self.chunk)+1);
+                        writeOp!(OP_JUMP, 0) ;
+                        self.addLocation("break");
+                        writeOperand!(9999_u16 as u16) ;
                     }
-                    self.walkTree(n, level +2);
+
+                    if n == Node::Continue {
+                        let loc = currentLocation(self.chunk) ;
+                        writeOp!(OP_LOOP, 0) ;
+                        let continueTo = loc - beginLocation+3;
+                        writeOperand!(continueTo as u16) ;
+                    }
+
+                    self.walkTree(n);
+
                 }
 
-                let loc = currentLocation(self.chunk) ;
                 writeOp!(OP_LOOP, 0) ;
-                let backJumpBy = loc - beginLocation+3;
+                let loc = currentLocation(self.chunk) ;
+                let backJumpBy = loc - beginLocation+2;
                 writeOperand!(backJumpBy as u16) ;
 
                 backPatch(self.chunk, jumpFromLocation) ;
-
-                for b in breaks {
-                    backPatch(self.chunk, b) ;
-                }
+                self.backpatchInner("innerbreak") ;
+                self.backpatchInner("break") ;
 
                 writeOp!(OP_POP, 0) ;
 
                 self.loopDepth-=1 ;
+                self.popScope() ;
                 DataType::None
             },
 
             Node::While => {
-                self.loopDepth+=1 ;
                 DataType::None
             },
 
-            Node::Else => {
-                DataType::None
-            },
             Node::Logical {
+                line,
                 expr
             } => {
                 DataType::Bool
-            }
+            },
+
+            Node::call {
+                line,
+                params,
+                func
+            } => {
+
+                let res = self.getFunction(func.clone());
+
+                let mut loc = 99999 ;
+                match res {
+                    Ok(x) => {
+                        loc = x ;
+                    }
+                    Err(s) => {
+                        self.errorAtCurrent(&s) ;
+                    }
+                }
+
+                let f = self.functionStore[loc].clone() ;
+
+                for p in params {
+                    self.walkTree(p) ;
+                }
+
+                writeOp!(OP_PUSH, line) ;
+                writeOperand!(loc as u16) ;
+                writeOp!(OP_CALL, line) ;
+
+                f.returnType
+
+            },
+
+            Node::parameter {
+                line,
+                name,
+                dataType
+            } => {
+
+                let loc = self.addVariable(name.clone(), dataType);
+                dataType
+            },
+
+            Node::function {
+                line,
+                name,
+                arity,
+                parameters,
+                statements,
+                returnType
+            } => {
+
+                let location = self.getFunction(name.clone()).unwrap();
+                let mut func = self.functionStore[location].clone() ;
+                // Stash the current chunk
+                let prev = self.chunk.clone() ;
+
+                // Push a new chunk in the compiler
+                *self.chunk = func.chunk.clone() ;
+                self.walkTree(Node::Block) ;
+                // Run the parameter nodes
+
+                for n in parameters {
+                    self.walkTree(n) ;
+                }
+
+                // These statements go in the new chunk
+                for n in statements {
+                    self.walkTree(n) ;
+                }
+                // Return from the function
+                writeOp!(OP_RETURN, line) ;
+                self.walkTree(Node::EndBlock) ;
+                // Now that the instructions are there, we replace it
+                // with the completed function
+                func.chunk = self.chunk.clone() ;
+
+                // Put the old chunk back
+                *self.chunk = prev ;
+                self.functionStore[location] = func ;
+
+                returnType
+            },
+
 
         }
     }

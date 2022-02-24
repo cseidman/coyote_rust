@@ -10,7 +10,6 @@
 use crate::chunk::{writeChunk, freeChunk, addConstant};
 use crate::chunk::OpCode::*;
 use crate::vm::*;
-use crptography::{Cryp};
 
 mod chunk;
 mod debug;
@@ -18,13 +17,11 @@ mod value;
 mod vm;
 mod scanner;
 mod compiler;
-mod heapvalue;
 mod common;
 mod ast;
-mod memory;
 mod symbol;
-mod bookmark;
 mod errors;
+mod types;
 
 use std::fs ;
 use std::path::*;

@@ -1,36 +1,9 @@
 use crate::chunk::OpCode::*;
-use crate::value::{ValueArray, writeValueArray, Value};
-use crate::heapvalue::{MemPool, HeapValue, HeapValueArray};
+use crate::value::{ValueArray, writeValueArray, Value, Function};
 use crate::ast::JumpType;
 use crate::symbol::{SymbolTable};
-/*
-const OP_UNKNOWN:u8 = 0;
-const OP_RETURN:u8 = 1;
-const OP_CONSTANT:u8 = 2;
-const OP_IADD:u8 = 3;
-const OP_ISUBTRACT:u8 = 4;
-const OP_IMULTIPLY:u8 = 5;
-const OP_IDIVIDE:u8 = 6;
-const OP_INEGATE:u8 = 7
-const OP_NIL:u8 = 8;
-const OP_TRUE:u8 = 9;
-const OP_FALSE:u8 = 10 ;
-const OP_NOT:u8 = 11;
-const OP_EQUAL:u8 = 12;
-const OP_GREATER:u8 = 14;
-const OP_LESS:u8 = 15;
-const OP_PUSH:u8 = 16;
-const OP_IPOP:u8 = 17;
-const OP_FPOP:u8 = 18;
-const OP_SPOP:u8 = 19;
-const OP_PRINT:u8 = 20;
-const OP_FNEGATE:u8 = 21;
-const OP_FADD:u8 = 22;
-const OP_FSUBTRACT:u8 = 23;
-const OP_FMULTIPLY:u8 = 24;
-const OP_FDIVIDE:u8 = 25;
-const OP_SCONSTANT:u8 = 26;
-*/
+use std::collections::HashMap;
+
 #[derive(Copy, Clone, Debug, PartialOrd, PartialEq)]
 pub enum OpCode {
     OP_RETURN,
@@ -85,6 +58,27 @@ pub enum OpCode {
     OP_INEQ,
     OP_FNEQ,
     OP_SNEQ,
+
+    OP_NEWARRAY,
+
+    OP_IGETAELEMENT,
+    OP_ISETAELEMENT,
+
+    OP_FGETAELEMENT,
+    OP_FSETAELEMENT,
+
+    OP_SGETAELEMENT,
+    OP_SSETAELEMENT,
+
+    OP_BGETAELEMENT,
+    OP_BSETAELEMENT,
+
+    OP_NEWDICT,
+    OP_GETHELEMENT,
+    OP_SETHELEMENT,
+
+    OP_CALL,
+
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -143,31 +137,50 @@ impl From<u8> for OpCode {
             50  => OP_FNEQ,
             51  => OP_SNEQ,
 
+            52 => OP_NEWARRAY,
+
+            53 => OP_IGETAELEMENT,
+            54 => OP_ISETAELEMENT,
+
+            55 => OP_FGETAELEMENT,
+            56 => OP_FSETAELEMENT,
+
+            57 => OP_SGETAELEMENT,
+            58 => OP_SSETAELEMENT,
+
+            59 => OP_BGETAELEMENT,
+            60 => OP_BSETAELEMENT,
+
+            61 => OP_NEWDICT,
+            62 => OP_GETHELEMENT,
+            63 => OP_SETHELEMENT,
+
+            64 => OP_CALL,
+
             _   => OP_UNKNOWN,
         }
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub constants: ValueArray,
-    pub heapConstants: HeapValueArray,
     pub lines: Vec<usize>,
-    pub symbTable: SymbolTable,
-
-    pub whileLocation: Vec<usize>
+    pub locals: usize,
+    pub symbTable: SymbolTable
 }
+
 
 impl Chunk {
     pub fn new() -> Self {
         Chunk{
             code: Vec::new(),
             constants: ValueArray::new(),
-            heapConstants: HeapValueArray::new() ,
-            symbTable: SymbolTable::new(),
             lines: Vec::new(),
-            whileLocation: Vec::new()
-        }
+            locals: 0,
+            symbTable: SymbolTable::new()
+       }
     }
 }
 
@@ -184,13 +197,11 @@ pub fn currentLocation(chunk: &Chunk) -> usize {
 }
 
 pub fn backPatch(chunk: &mut Chunk, location: usize) {
-
     let currLoc = currentLocation(chunk);
     let val = ((currLoc - location-2) as u16).to_le_bytes() ;
 
     chunk.code[location+1] = val[0] ;
     chunk.code[location+2] = val[1] ;
-
 }
 
 pub fn writeChunk(chunk: &mut Chunk, byte: u8, line: usize) {
@@ -224,21 +235,3 @@ pub fn addConstant(chunk: &mut Chunk, value: Value) -> u16 {
     (chunk.constants.values.len()-1) as u16
 }
 
-pub fn addStringConstant(chunk: &mut Chunk, s: String) -> u16 {
-    // Get the index of the heap constant to use as a pointer
-    let curIndex = chunk.heapConstants.len() as u16;
-    // Add the this pointer to the constants
-    addConstant(chunk, Value::integer(curIndex as i64));
-    chunk.heapConstants.push(HeapValue::string(s)) ;
-    curIndex
-}
-
-pub fn getStringConstant(chunk: &mut Chunk,s: String) -> u16 {
-    for i in 0..(chunk.heapConstants.len()-1) {
-        let label = chunk.heapConstants[i].clone().getString() ;
-        if label == s {
-            return i as u16;
-        }
-    }
-    0_u16
-}

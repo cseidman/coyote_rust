@@ -1,7 +1,13 @@
-use std::rc::{Rc};
 
-#[derive(PartialEq)]
-#[derive(Clone, Copy, Debug, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
+pub enum TokenData {
+    STRING,
+    INTEGER,
+    FLOAT,
+    BOOL,
+}
+
+#[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
 pub enum TokenType {
     // Single-character tokens.
     TOKEN_LEFT_PAREN, TOKEN_RIGHT_PAREN,
@@ -9,7 +15,8 @@ pub enum TokenType {
     TOKEN_LEFT_BRACKET, TOKEN_RIGHT_BRACKET,
     TOKEN_COMMA, TOKEN_DOT, TOKEN_MINUS, TOKEN_PLUS,
     TOKEN_SEMICOLON, TOKEN_SLASH, TOKEN_STAR,
-    TOKEN_COLON, TOKEN_DOUBLE_COLON,
+    TOKEN_COLON, TOKEN_DOUBLE_COLON, TOKEN_AT,
+    TOKEN_AT_BRACKET,
 
     // One or two character tokens.
     TOKEN_BANG, TOKEN_BANG_EQUAL,
@@ -27,11 +34,15 @@ pub enum TokenType {
 
     TOKEN_NIL,
 
+    TOKEN_DATA_TYPE(TokenData),
+
     // Keywords.
     TOKEN_AND, TOKEN_CLASS, TOKEN_ELSE, TOKEN_FALSE,
     TOKEN_FOR, TOKEN_FUN, TOKEN_IF, TOKEN_OR,
     TOKEN_PRINT, TOKEN_RETURN, TOKEN_SUPER, TOKEN_THIS,
     TOKEN_TRUE, TOKEN_VAR, TOKEN_WHILE, TOKEN_BREAK, TOKEN_CONTINUE,
+    // Visibility
+    TOKEN_PRIVATE,
 
     TOKEN_ERROR, TOKEN_EOF, TOKEN_CR, TOKEN_START
 }
@@ -107,6 +118,11 @@ impl Scanner {
                 self.makeToken(TOKEN_CR)
             },
             '\0'=>  self.makeToken(TOKEN_EOF),
+            '@' =>  if self.tmatch('[') {
+                        self.makeToken(TOKEN_AT_BRACKET)
+                    } else {
+                        self.makeToken(TOKEN_AT)
+                    },
             '(' =>  self.makeToken(TOKEN_LEFT_PAREN),
             ')' =>  self.makeToken(TOKEN_RIGHT_PAREN),
             '{' =>  self.makeToken(TOKEN_LEFT_BRACE),
@@ -232,7 +248,7 @@ impl Scanner {
                 break ;
             }
 
-            if self.isAlpha(peek) {
+            if peek.is_alphanumeric() || peek == '_' {
                 self.advance();
             } else {
                 break ;
@@ -371,7 +387,7 @@ impl Scanner {
             "else"      => TOKEN_ELSE,
             "false"     => TOKEN_FALSE,
             "for"       => TOKEN_FOR,
-            "fun"       => TOKEN_FUN,
+            "func"      => TOKEN_FUN,
             "if"        => TOKEN_IF,
             "nil"       => TOKEN_NIL,
             "or"        => TOKEN_OR,
@@ -384,7 +400,14 @@ impl Scanner {
             "while"     => TOKEN_WHILE,
             "break"     => TOKEN_BREAK,
             "continue"  => TOKEN_CONTINUE,
-             _          => TOKEN_IDENTIFIER ,
+            "private"   => TOKEN_PRIVATE,
+
+            "string"    => TOKEN_DATA_TYPE(TokenData::STRING),
+            "integer"   => TOKEN_DATA_TYPE(TokenData::INTEGER),
+            "float"     => TOKEN_DATA_TYPE(TokenData::FLOAT),
+            "bool"      => TOKEN_DATA_TYPE(TokenData::BOOL),
+
+            _           => TOKEN_IDENTIFIER ,
         }
 
     }

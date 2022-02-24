@@ -1,7 +1,14 @@
-let x = 7
-let y = 10
-if x == 7 and y == 10 {
-    print "OK"
-} else {
-    print "Oops..!"
+func add(x:integer, y:integer) integer {
+    let v = 0
+    return x+y+v
+
 }
+
+func addem(x:integer, y:integer) integer {
+    return add(x,y)
+}
+
+let n = 5
+print addem(n,3) + addem(n,4) + addem(n,5)
+//8+9+10=27
+

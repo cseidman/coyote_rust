@@ -1,30 +1,48 @@
 use crate::value::Value ;
 use crate::ast::DataType;
+use std::collections::HashMap;
 
+// Symbol Types
 #[derive(Clone)]
+pub enum ObjectType {
+    variable,
+    datatype
+}
+
+// Symbol entry for the class type
+pub struct ClassSymbol {
+    name: String, // Name of the class
+    level: usize,
+}
+
+// Symbol tables for variables
+#[derive(Debug, Clone)]
 pub struct Symbol {
     name: String,
     level: usize,
     pub location: usize,
-    pub datatype: DataType
+    pub datatype: DataType,
 }
-#[derive(Clone)]
+
+#[derive(Debug, Clone)]
 pub struct SymbolLevel {
-    symbols: Vec<Symbol>,
+    symbols: HashMap<String, Symbol>,
     level: usize,
-    nextSlot: usize
+    nextSlot: usize,
+    varcount: usize
 }
 
 impl SymbolLevel {
     pub fn new() -> Self {
         Self {
-            symbols: Vec::new(),
+            symbols: HashMap::new(),
             level: 0,
-            nextSlot: 0
+            nextSlot: 0,
+            varcount: 0
         }
     }
 }
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SymbolTable {
     symbolLevel: Vec<SymbolLevel>,
     level: usize,
@@ -35,7 +53,7 @@ impl SymbolTable {
 
     pub fn new() -> Self {
 
-        let mut t= SymbolTable {
+        let mut t = SymbolTable {
            symbolLevel: Vec::new(),
            level: 0,
            nextSlot: 0
@@ -44,6 +62,22 @@ impl SymbolTable {
         // Creates an empty slot for the top level variables
         t.symbolLevel.push(SymbolLevel::new());
         t
+    }
+
+    pub fn varCount(&self) -> usize {
+        self.symbolLevel[self.level].varcount
+    }
+
+    pub fn debug(&self) {
+        for l in self.symbolLevel.iter() {
+            for s in l.symbols.keys() {
+                println!("Level {} Symbol {}", l.level, s);
+            }
+        }
+    }
+
+    pub fn getLevel(&mut self) -> usize {
+        self.level
     }
 
     pub fn pushLevel(&mut self) {
@@ -55,6 +89,9 @@ impl SymbolTable {
     }
 
     pub fn popLevel(&mut self) {
+        for _ in 0..self.varCount() {
+            self.symbolLevel[self.level].varcount-=1 ;
+        }
         self.symbolLevel.pop() ;
         self.level-=1 ;
     }
@@ -66,14 +103,16 @@ impl SymbolTable {
     ) -> usize {
         let currentSlot = self.symbolLevel[self.level].nextSlot ;
         self.symbolLevel[self.level].nextSlot+=1 ;
+        self.symbolLevel[self.level].varcount+=1 ;
 
         let symb = Symbol {
-            name,
+            name: name.clone(),
             level: self.level,
             location: currentSlot,
             datatype
         };
-        self.symbolLevel[self.level].symbols.push(symb) ;
+
+        self.symbolLevel[self.level].symbols.insert(name.clone(), symb) ;
         currentSlot
 
     }
@@ -82,10 +121,12 @@ impl SymbolTable {
         let mut lvl = self.level ;
         loop {
 
-            for symb in self.symbolLevel[lvl].symbols.iter() {
-                if name == symb.name {
-                    return Ok(symb.clone());
-                }
+            if self.symbolLevel[lvl].symbols.contains_key(&name) {
+                return Ok(self.symbolLevel[lvl]
+                    .symbols
+                    .get(&name)
+                    .unwrap()
+                    .clone());
             }
 
             // We're done
@@ -100,43 +141,3 @@ impl SymbolTable {
     }
 }
 
-#[cfg(test)]
-mod test {
-
-    use super::* ;
-
-    #[test]
-    pub fn run_symbols() {
-
-        // Load symbol table
-        let mut t = SymbolTable::new() ;
-        assert_eq!(t.level,0, "Make sure level is 0");
-
-        let loc = t.addSymbol(
-            "varx".to_string(),
-            DataType::Integer
-        );
-
-        let symb = t.getSymbol("varx".to_string()) ;
-        assert_eq!(symb.unwrap().name, "varx".to_string()) ;
-
-        t.pushLevel() ;
-        assert_eq!(t.level,1 );
-
-        let loc2 = t.addSymbol(
-            "varx".to_string(),
-            DataType::Integer
-        );
-
-        let symb2 = t.getSymbol("varx".to_string()) ;
-        assert_eq!(symb2.unwrap().name, "varx".to_string()) ;
-
-        let symb3 = t.getSymbol("vary".to_string()) ;
-        assert!(symb3.is_err(), "Unable to find 'vary'") ;
-
-        t.popLevel() ;
-        assert_eq!(t.level, 0);
-
-    }
-
-}
