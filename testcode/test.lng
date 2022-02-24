@@ -1,5 +1,6 @@
 func add(x:integer, y:integer) integer {
-    return x+y
+    let v = 0
+    return x+y+v
 
 }
 
@@ -10,4 +11,4 @@ func addem(x:integer, y:integer) integer {
 let n = 5
 print addem(n,3) + addem(n,4) + addem(n,5)
 //8+9+10=27
-//8+12+17
+

@@ -85,6 +85,7 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
 
     match instruction {
         OpCode::OP_RETURN
+        | OpCode::OP_CALL
         | OpCode::OP_IEQ
         | OpCode::OP_FEQ
         | OpCode::OP_SEQ
@@ -129,7 +130,7 @@ pub fn disassembleInstruction(chunk: &Chunk, offset: usize) -> usize {
         | OpCode::OP_JUMP => jumpBackInstruction(display!(instruction),  chunk, offset),
          OpCode::OP_JUMP_IF_FALSE
         | OpCode::OP_JUMP_IF_FALSE_NOPOP => jumpFowardInstruction(display!(instruction),  chunk, offset),
-        | OpCode::OP_CALL => callInstruction(display!(instruction),  chunk, offset),
+        //| OpCode::OP_CALL => callInstruction(display!(instruction),  chunk, offset),
         | OpCode::OP_PUSH=> valueInstruction(display!(instruction),  chunk, offset),
         OpCode::OP_LOADVAR
         | OpCode::OP_IGETAELEMENT

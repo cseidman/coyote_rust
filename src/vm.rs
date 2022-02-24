@@ -103,44 +103,39 @@ impl VM {
 
         println!("Locals: {}", self.chunk.clone().locals) ;
 
-
         macro_rules! push_frame {
             ($func:expr) => {
 
                 // The slot pointer to the frame needs to point to
                 // the current stacktop - the arity
                 unsafe {
+                    // Before pushing to the next frame, update and store
+                    // the position of the stacktop
 
-                    let oldStackTop = self.stackTop ;
                     let arity = $func.arity as usize ;
                     let locals = $func.chunk.locals ;
-                    // The stacktop needs to be
-                    self.stackTop += frames[fPtr].slotPtr-arity ;
+
+                    self.stackTop+=frames[fPtr].slotPtr-arity ;
+                    let oldStackTop = self.stackTop;
 
                     println!("Stacktop: {} Arity {}", self.stackTop, arity) ;
 
+                    // This is the staring position of the slice we're about to go in
                     let start = self.stackTop;
-
-                    // For the previous frame, we want to sweep the parameters
-                    // off the stack when we pop it off so we set its pointer
-                    // back the length of the parameter stack
-
-                    frames[fPtr].slotPtr-=arity ;
-
-                    // The slice 0 needs to be at the first parameter
-
-                    let slot = self.stack[start..].as_mut_ptr();
 
                     let fr = Frame {
                         chunk: $func.chunk.clone(),
                         ip: 0,
                         // The actual pointer needs to already be one position
                         // past the last parameter
-                        slotPtr: locals  as usize ,
+                        slotPtr: locals as usize ,
                         // But the slice begins at 0 where the first parameter is located
-                        slots: slot,
+                        slots: self.stack[start..].as_mut_ptr(),
                         oldStackTop
                     } ;
+
+                    //self.stackTop-= arity;
+                    frames[fPtr].slotPtr-= arity ;
 
                     frames.push(fr) ;
                     fPtr+=1 ;
@@ -153,6 +148,7 @@ impl VM {
 
         macro_rules! pop_frame {
             () => {
+
                 frames.pop() ;
                 fPtr-=1;
                 // Set the stacktop back to where it was before we made the call
@@ -568,7 +564,8 @@ impl VM {
                 },
                 OP_CALL => {
 
-                    let args = READ_OPERAND!() as usize ;
+                    //let args = READ_OPERAND!() as usize ;
+                    let args = pop!().get_integer() as usize ;
                     let fnc = get_function!(args) ;
 
                     push_frame!(fnc);

@@ -1,6 +1,6 @@
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::chunk::{Chunk, writeChunk, backPatch, OpCode, writeu16Chunk, addConstant, currentLocation};
-use crate::value::{Value, Property, Class, Visibilty, Function};
+use crate::value::{Value, Property, Class, Visibilty, Function, printValue};
 use crate::scanner::*;
 use TokenType::* ;
 use std::io::{stderr, Write} ;
@@ -1092,6 +1092,8 @@ impl<'a> Compiler<'a> {
         let returnType = oFunc.returnType;
         let arity = oFunc.arity ;
 
+        println!("ARITY: {}", arity) ;
+
         // Collect the parameters that should already be there when someone
         // calls the function
         let mut pcount = 0 ;
@@ -1265,6 +1267,7 @@ impl<'a> Compiler<'a> {
 
         self.functionStore[loc].arity = arity ;
         self.functionStore[loc].returnType = returnType ;
+        self.functionStore[loc].isStub = false ;
 
         // This needs to begin with a brace
         self.consume(TOKEN_LEFT_BRACE, "Expect a '{' after the function header") ;
@@ -2035,27 +2038,29 @@ impl<'a> Compiler<'a> {
                 params,
                 func
             } => {
-                println!("Startin call eval");
+                println!("Starting call eval");
                 let res = self.getFunction(func.clone());
 
-                let mut loc = 0 ;
+                let mut loc = 99999 ;
                 match res {
                     Ok(x) => {
                         loc = x ;
-                    }  ,
+                    }
                     Err(s) => {
                         self.errorAtCurrent(&s) ;
                     }
                 }
 
                 let f = self.functionStore[loc].clone() ;
-
+                println!("Function isStub: {}", f.isStub) ;
                 for p in params {
                     self.walkTree(p) ;
                 }
 
-                writeOp!(OP_CALL, line) ;
+                writeOp!(OP_PUSH, line) ;
                 writeOperand!(loc as u16) ;
+                writeOp!(OP_CALL, line) ;
+
                 f.returnType
 
             },
