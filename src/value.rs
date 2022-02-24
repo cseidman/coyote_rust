@@ -7,16 +7,11 @@ use std::rc::Rc;
 use std::ops;
 use std::cmp ;
 use std::cmp::Ordering;
-use rust_decimal::prelude::*;
 use crate::ast::DataType;
 use std::collections::{HashMap};
 use std::ops::{Add, Sub};
-use blake2::{Blake2b, Digest};
-use blake2::digest::generic_array::{GenericArray};
 use std::cell::RefCell;
 use crate::chunk::Chunk;
-
-pub type hashkey = GenericArray<u8, u64> ;
 
 pub fn printValue(value: Value) {
     print!("{}",value ) ;

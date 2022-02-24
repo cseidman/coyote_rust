@@ -5,5 +5,5 @@ func fib(n:integer) integer {
   return fib(n-1) + fib(n-2)
 }
 
-print fib(11)
+print fib(35)
 

@@ -1092,13 +1092,10 @@ impl<'a> Compiler<'a> {
         let returnType = oFunc.returnType;
         let arity = oFunc.arity ;
 
-        println!("ARITY: {}", arity) ;
-
         // Collect the parameters that should already be there when someone
         // calls the function
         let mut pcount = 0 ;
         let mut params: Vec<Node> = Vec::new() ;
-        println!("Named function parameters begin") ;
         while !self.t_match(TOKEN_RIGHT_PAREN) {
             if pcount > 0 {
                 self.consume(TOKEN_COMMA, "Expect comma after parameter") ;
@@ -1107,7 +1104,6 @@ impl<'a> Compiler<'a> {
             self.expression() ;
             params.push(self.nodes.pop().unwrap()) ;
         }
-        println!("Named function parameters end: {} parameters", pcount) ;
 
         if pcount != oFunc.arity {
             self.errorAtCurrent(&format!("Function {} requires {} parameters, but you supplied {}",
@@ -1242,7 +1238,6 @@ impl<'a> Compiler<'a> {
         // function itself
         self.consume(TOKEN_IDENTIFIER, "Expect a function name after 'func'") ;
         let funcName = self.parser.previous().name ;
-        println!("Declaring function '{}'", funcName.clone()) ;
         let loc = self.addStubFunction(funcName.clone());
 
         let mut arity: u16 = 0 ;
@@ -1285,7 +1280,6 @@ impl<'a> Compiler<'a> {
             statements,
             returnType
         };
-        println!("Finished Declaring function '{}'", funcName.clone()) ;
         //self.nodePush(funcNode);
         self.walkTree(funcNode);
     }
@@ -1647,7 +1641,6 @@ impl<'a> Compiler<'a> {
                 assigned,
                 varExpr
             } => {
-                println!("Declaring var '{}'", name.clone()) ;
                 let datatype = self.walkTree(*varExpr, );
                 let loc = self.addVariable(name.clone(), datatype) ;
                 writeOp!(OP_SETVAR, line);
@@ -1757,7 +1750,7 @@ impl<'a> Compiler<'a> {
                 datatype,
                 child
             } => {
-                println!("About to get variable for setvar '{}'", name.clone()) ;
+
                 let symbol = self.getVariable(name.clone()) ;
                 let valueDataType = self.walkTree(*child);
 
@@ -1784,8 +1777,6 @@ impl<'a> Compiler<'a> {
                 line,
                 name
             } => {
-                println!("About to get variable for named var '{}'", name.clone()) ;
-                println!("chunks symbol level is {}", self.chunk.symbTable.getLevel());
 
                 let symbol = self.getVariable(name.clone()) ;
                 writeOp!(OP_LOADVAR, line);
@@ -1795,7 +1786,7 @@ impl<'a> Compiler<'a> {
             },
 
             Node::Block => {
-                println!("Opening block") ;
+
                 self.chunk.symbTable.pushLevel();
                 DataType::None
             },
@@ -1806,7 +1797,6 @@ impl<'a> Compiler<'a> {
                      writeOp!(OP_POP,0) ;
                 }
                 self.chunk.symbTable.popLevel();
-                println!("Closed block") ;
                 DataType::None
             },
 
@@ -2038,7 +2028,7 @@ impl<'a> Compiler<'a> {
                 params,
                 func
             } => {
-                println!("Starting call eval");
+
                 let res = self.getFunction(func.clone());
 
                 let mut loc = 99999 ;
@@ -2052,7 +2042,7 @@ impl<'a> Compiler<'a> {
                 }
 
                 let f = self.functionStore[loc].clone() ;
-                println!("Function isStub: {}", f.isStub) ;
+
                 for p in params {
                     self.walkTree(p) ;
                 }
@@ -2070,7 +2060,7 @@ impl<'a> Compiler<'a> {
                 name,
                 dataType
             } => {
-                println!("Symbol level when adding param '{}': {}", name, self.chunk.symbTable.getLevel());
+
                 let loc = self.addVariable(name.clone(), dataType);
                 dataType
             },
@@ -2083,7 +2073,7 @@ impl<'a> Compiler<'a> {
                 statements,
                 returnType
             } => {
-                println!("Walking function tree for function '{}'", name.clone()) ;
+
                 let location = self.getFunction(name.clone()).unwrap();
                 let mut func = self.functionStore[location].clone() ;
                 // Stash the current chunk
@@ -2093,11 +2083,10 @@ impl<'a> Compiler<'a> {
                 *self.chunk = func.chunk.clone() ;
                 self.walkTree(Node::Block) ;
                 // Run the parameter nodes
-                println!("Begin parameter tree");
+
                 for n in parameters {
                     self.walkTree(n) ;
                 }
-                println!("End parameter tree");
 
                 // These statements go in the new chunk
                 for n in statements {
@@ -2113,7 +2102,7 @@ impl<'a> Compiler<'a> {
                 // Put the old chunk back
                 *self.chunk = prev ;
                 self.functionStore[location] = func ;
-                println!("Finished Walking function tree for function '{}'", name.clone()) ;
+
                 returnType
             },
 

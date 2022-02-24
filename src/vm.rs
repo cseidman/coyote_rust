@@ -1,5 +1,7 @@
 #![allow(unused_unsafe)]
 
+const DEBUG:bool = false ;
+
 use crate::chunk::{Chunk, OpCode};
 use crate::vm::InterpretResult::{INTERPRET_OK, INTERPRET_COMPILE_ERROR, INTERPRET_RUNTIME_ERROR};
 use crate::value::{printValue, Value, Array, Dict, HKey, Function};
@@ -17,6 +19,9 @@ use std::io::{stderr, Write,self,stdin,stdout} ;
 use std::ops::Deref;
 use std::cell::RefCell;
 use crate::ast::DataType;
+
+use std::time ;
+use std::time::Instant;
 
 // We only use the frame to track the location of the current
 // pointers
@@ -73,10 +78,16 @@ impl VM {
     }
 
     pub fn interpret(&mut self, source: String) -> InterpretResult {
+
         let compileResult = self.Compile(source) ;
+        let start = Instant::now() ;
         if compileResult == INTERPRET_OK {
-            return self.run();
+            let retval= self.run();
+            let elapsed_time = start.elapsed();
+            println!("Program took {} milliseconds.", elapsed_time.as_millis());
+            return retval ;
         }
+
         compileResult
     }
 
@@ -101,8 +112,6 @@ impl VM {
         frames.push(fr) ;
         let mut fPtr:usize = 0 ;
 
-        println!("Locals: {}", self.chunk.clone().locals) ;
-
         macro_rules! push_frame {
             ($func:expr) => {
 
@@ -118,8 +127,6 @@ impl VM {
                     self.stackTop+=frames[fPtr].slotPtr-arity ;
                     let oldStackTop = self.stackTop;
 
-                    println!("Stacktop: {} Arity {}", self.stackTop, arity) ;
-
                     // This is the staring position of the slice we're about to go in
                     let start = self.stackTop;
 
@@ -134,12 +141,10 @@ impl VM {
                         oldStackTop
                     } ;
 
-                    //self.stackTop-= arity;
                     frames[fPtr].slotPtr-= arity ;
 
                     frames.push(fr) ;
                     fPtr+=1 ;
-                    //frames[fPtr].slotPtr+= arity ;
 
                 }
 
@@ -296,21 +301,23 @@ impl VM {
             //let _ = stdin().read_line(&mut "nada".to_string());
 
             /*** Debug ***/
-            print!("          ");
-            for slot in 0..frames[fPtr].slotPtr {
-                unsafe {
-                    let val = (*frames[fPtr].slots.offset(slot as isize)).clone();
-                    if val.isEmpty() {
-                        continue;
-                    }
+            if DEBUG {
+                print!("          ");
+                for slot in 0..frames[fPtr].slotPtr {
+                    unsafe {
+                        let val = (*frames[fPtr].slots.offset(slot as isize)).clone();
+                        if val.isEmpty() {
+                            continue;
+                        }
 
-                    print!("[ ");
-                    printValue(val);
-                    print!(" ]");
+                        print!("[ ");
+                        printValue(val);
+                        print!(" ]");
+                    }
                 }
+                println!();
+                disassembleInstruction(&frames[fPtr].chunk, frames[fPtr].ip);
             }
-            println!();
-            disassembleInstruction(&frames[fPtr].chunk, frames[fPtr].ip) ;
             /*** Debug ***/
 
             let instruction:OpCode = READ_BYTE!().into();
