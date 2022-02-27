@@ -53,9 +53,9 @@ pub enum HKey {
 impl HKey {
     pub fn new(value: Value) -> Self {
         match value {
-            Value::string(x) => {
-                HKey::HString(x)
-            },
+            //Value::string(x) => {
+            //    HKey::HString(x)
+            //},
             Value::integer(x) => {
                 HKey::HInteger(x)
             },
@@ -257,13 +257,15 @@ pub enum Value {
     float(f64),
     logical(bool),
     string(String),
-    array(Array),
-    class(Class),
-    hash(Dict),
+    array(*mut Array),
+    //class(Class),+
+    hash(*mut Dict),
     nil,
     empty,
     function(usize)
 }
+
+
 
 impl Display for Value {
 
@@ -277,6 +279,7 @@ impl Display for Value {
                 },
             Value::nil => write!(f, "nil"),
             //Value::empty => write!(f, "(empty)"),
+            /*
             Value::array(x) => {
 
                 let mut counter = 0 ;
@@ -306,9 +309,11 @@ impl Display for Value {
                 }
                 write!(f, "]")
             },
+            */
+
             Value::integer(x) => write!(f,"{}",x),
             Value::float(x) => write!(f,"{}",x),
-            Value::string(x) => write!(f,"{}",x),
+            Value::string(x) => write!(f, "{}", x),
             _ => write!(f,"(Unknown)"),
         }
 
@@ -322,12 +327,16 @@ impl Value {
             Value::integer(..) => DataType::Integer,
             Value::float(..) => DataType::Float,
             Value::string(..) => DataType::String,
-            Value::array(x) => x.datatype,
+            Value::array(x) => {
+                unsafe {
+                    (*(*x)).datatype
+                }
+            },
             Value::hash(..) => DataType::Dict,
             Value::logical(..) => DataType::Bool,
             Value::nil => DataType::Nil,
             Value::empty => DataType::None,
-            Value::class(..) => DataType::Object,
+            //Value::class(..) => DataType::Object,
             Value::function(..) => DataType::Function
         }
     }
@@ -353,30 +362,39 @@ impl Value {
         false
     }
 
+
     pub fn get_array(self) -> Array {
         if let Value::array(x) = self {
-            return x;
+            unsafe {
+                return (*x).clone();
+            }
         }
         panic!("Value {:?} is not an array", self) ;
     }
 
     pub fn get_array_mut(&mut self) -> &mut Array {
         if let Value::array(x) = self {
-            return x;
+            unsafe {
+                return &mut (*(*x));
+            }
         }
         panic!("Value {:?} is not an array", self) ;
     }
 
     pub fn get_dict(self) -> Dict {
         if let Value::hash(x) = self {
-            return x;
+            unsafe {
+                return (*x).clone();
+            }
         }
         panic!("Value {:?} is not a hash", self) ;
     }
 
     pub fn get_dict_mut(&mut self) -> &mut Dict {
         if let Value::hash(x) = self {
-            return x;
+            unsafe {
+                return &mut (*(*x));
+            }
         }
         panic!("Value {:?} is not a hash", self) ;
     }
@@ -411,9 +429,9 @@ impl Value {
 
     pub fn get_string(self) -> String {
         if let Value::string(x) = self {
-            x.to_string()
+                x
         } else {
-            panic!("Not a string");
+            panic!("Value {:?} Not a string", self);
         }
     }
 
@@ -437,12 +455,16 @@ impl PartialEq for Value {
                     panic!("Mismatch when trying to equate floats");
                 }
             },
+
             Value::hash(x) => {
                 false
             },
+            /*
             Value::class(x) => {
                 false
             },
+            */
+
             Value::function(x) => {
                 if let Value::function(y) = other {
                     x == y
@@ -450,23 +472,31 @@ impl PartialEq for Value {
                     panic!("Mismatch when trying to equate functions");
                 }
             },
+
             Value::array(x) => {
                 if let Value::array(y) = other {
+                    unsafe {
 
-                    if y.size != x.size {
-                        return false ;
-                    }
+                        let x = *x ;
+                        let y = *y ;
 
-                    for i in 0..x.size {
-                        if x.values[i] != y.values[i] {
+                        if (*y).size != (*x).size {
                             return false;
                         }
+
+                        for i in 0..(*x).size {
+                            if (*x).values[i] != (*y).values[i] {
+                                return false;
+                            }
+                        }
+                        return true
                     }
-                    return true
 
                 }
                 panic!("Mismatch when trying to equate arrays");
             }
+
+
             _=>panic!("Unable to equate type {:?}", self )
         }
 
@@ -520,16 +550,16 @@ impl Add for Value {
                     panic!("Mismatch when trying to add floats");
                 }
             },
-            /*
+
             Value::string(mut x) => {
                 if let Value::string(y) = rhs {
-                    x.push_str(y.as_str());
-                    Value::string(x)
+                        x.push_str(y.as_str());
+                        Value::string(x)
+
                 } else {
                     panic!("Mismatch when trying to add strings");
                 }
             },
-            */
 
             _=>panic!("Unable to add types")
         }

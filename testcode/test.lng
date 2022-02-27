@@ -10,5 +10,6 @@ func addem(x:integer, y:integer) integer {
 
 let n = 5
 print addem(n,3) + addem(n,4) + addem(n,5)
+print "Yes"
 //8+9+10=27
 

@@ -79,6 +79,15 @@ pub enum OpCode {
 
     OP_CALL,
 
+    OP_INT_1,
+    OP_INT_2,
+
+    OP_IADD_1,
+    OP_IADD_2,
+
+    OP_ISUB_1 ,
+    OP_ISUB_2 ,
+
     OP_UNKNOWN
 }
 impl From<u8> for OpCode {
@@ -156,6 +165,15 @@ impl From<u8> for OpCode {
             63 => OP_SETHELEMENT,
 
             64 => OP_CALL,
+
+            65 => OP_INT_1,
+            66 => OP_INT_2,
+
+            67 => OP_IADD_1,
+            68 => OP_IADD_2,
+
+            69 => OP_ISUB_1 ,
+            70 => OP_ISUB_2 ,
 
             _   => OP_UNKNOWN,
         }

@@ -26,7 +26,7 @@ use std::time::Instant;
 // We only use the frame to track the location of the current
 // pointers
 pub struct Frame {
-    pub chunk: Chunk, // New chunk coming from a function or method
+    pub chunk: *mut Chunk, // New chunk coming from a function or method
     pub slotPtr: usize, // This is the pointer as it looks to the local frame
     pub ip: usize, // This tracks the instruction pointer of the local frame
     pub slots: *mut Value,
@@ -99,18 +99,21 @@ impl VM {
 
     pub fn run(&mut self) -> InterpretResult {
 
+
         // Top level stack frame
         let fr = Frame {
-            chunk: self.chunk.clone(),
-            ip: self.ip,
+            chunk: &mut self.chunk as *mut Chunk,
+            ip: 0,
             slotPtr: self.stackTop,
             slots: self.stack[..].as_mut_ptr(),
             oldStackTop: self.stackTop
         } ;
 
-        let mut frames:Vec<Frame> = Vec::new() ;
+        let mut frames:Vec<Frame> = Vec::with_capacity(1000000) ;
         frames.push(fr) ;
+
         let mut fPtr:usize = 0 ;
+        let mut ip:usize = 0 ;
 
         macro_rules! push_frame {
             ($func:expr) => {
@@ -121,8 +124,8 @@ impl VM {
                     // Before pushing to the next frame, update and store
                     // the position of the stacktop
 
-                    let arity = $func.arity as usize ;
-                    let locals = $func.chunk.locals ;
+                    let arity = (*$func).arity as usize ;
+                    let locals = (*$func).chunk.locals ;
 
                     self.stackTop+=frames[fPtr].slotPtr-arity ;
                     let oldStackTop = self.stackTop;
@@ -131,7 +134,7 @@ impl VM {
                     let start = self.stackTop;
 
                     let fr = Frame {
-                        chunk: $func.chunk.clone(),
+                        chunk: &mut (*$func).chunk as *mut Chunk,
                         ip: 0,
                         // The actual pointer needs to already be one position
                         // past the last parameter
@@ -142,9 +145,13 @@ impl VM {
                     } ;
 
                     frames[fPtr].slotPtr-= arity ;
+                     // Store the current IP in the frame
+                    frames[fPtr].ip = ip ;
+                    ip = 0 ;
 
                     frames.push(fr) ;
                     fPtr+=1 ;
+
 
                 }
 
@@ -154,10 +161,13 @@ impl VM {
         macro_rules! pop_frame {
             () => {
 
-                frames.pop() ;
+                let fr = frames.pop() ;
+                drop(fr);
+
                 fPtr-=1;
                 // Set the stacktop back to where it was before we made the call
                 self.stackTop = frames[fPtr].oldStackTop;
+                ip = frames[fPtr].ip;
 
             };
         }
@@ -165,24 +175,29 @@ impl VM {
         macro_rules! READ_OPERAND {
             () => {
                 {
-                  let mut val:[u8;2] = Default::default();
-                  let ip = frames[fPtr].ip ;
-
+                  unsafe {
+                  let val:[u8;2] = [
+                     (*frames[fPtr].chunk).code[ip],
+                     (*frames[fPtr].chunk).code[ip+1]
+                  ];
+                    /*
                   val.copy_from_slice(&frames[fPtr]
                     .chunk
                     .code[ip..(ip+2)]) ;
-
-                  frames[fPtr].ip+=2;
+*/
+                  ip+=2 ;
                   u16::from_le_bytes(val)
+                  }
                 }
             };
         }
 
         macro_rules! READ_BYTE {
             () => {{
-                let p = frames[fPtr].ip;
-                frames[fPtr].ip+=1;
-                frames[fPtr].chunk.code[p]
+                ip+=1 ;
+                unsafe {
+                    (*frames[fPtr].chunk).code[ip-1]
+                }
             }};
         }
 
@@ -269,7 +284,9 @@ impl VM {
         macro_rules! get_function {
             ($loc:expr) => {
                 {
-                    self.functionStore[$loc as usize].clone()
+                    unsafe {
+                        &mut self.functionStore[$loc as usize] as *mut Function
+                    }
                 }
             };
         }
@@ -296,6 +313,8 @@ impl VM {
             };
         }
 
+
+
         loop {
 
             //let _ = stdin().read_line(&mut "nada".to_string());
@@ -316,7 +335,9 @@ impl VM {
                     }
                 }
                 println!();
-                disassembleInstruction(&frames[fPtr].chunk, frames[fPtr].ip);
+                unsafe {
+                    disassembleInstruction(&(*frames[fPtr].chunk), ip);
+                }
             }
             /*** Debug ***/
 
@@ -328,17 +349,41 @@ impl VM {
                     let value = READ_OPERAND!() as i64;
                     push!(Value::integer(value)) ;
                 },
+
+                OP_INT_1 => {push!(Value::integer(1));}
+                OP_INT_2 => { push!(Value::integer(2));}
+
+                OP_IADD_1 => {
+                    let val = pop!().get_integer() +1 ;
+                    push!(Value::integer(val)) ;
+                },
+                OP_IADD_2 => {
+                    let val = pop!().get_integer() + 2 ;
+                    push!(Value::integer(val)) ;
+                },
+                OP_ISUB_1 => {
+                    let val = pop!().get_integer() - 1 ;
+                    push!(Value::integer(val)) ;
+                },
+                OP_ISUB_2 => {
+                    let val = pop!().get_integer() - 2 ;
+                    push!(Value::integer(val)) ;
+                },
+
                 OP_CONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
-
-                    let constant = frames[fPtr].chunk.constants.values[constIndex].clone() ;
-                    push!(constant) ;
+                    unsafe {
+                        let constant = (*frames[fPtr].chunk).constants.values[constIndex].clone();
+                        push!(constant);
+                    }
                 },
                 OP_SCONSTANT => {
                     let constIndex = READ_OPERAND!() as usize;
                     // This is the pointer to the string in the heapValue array
-                    let stringValue = frames[fPtr].chunk.constants.values[constIndex].clone() ;
-                    push!(stringValue) ;
+                    unsafe {
+                        let stringValue = (*frames[fPtr].chunk).constants.values[constIndex].clone();
+                        push!(stringValue);
+                    }
                 },
                 OP_NIL => { push!(Value::nil);},
                 OP_TRUE => { push!(Value::logical(true));},
@@ -435,7 +480,7 @@ impl VM {
                     let jumpto = READ_OPERAND!() as usize;
 
                     if !logicalResult {
-                        frames[fPtr].ip += jumpto ;
+                       ip += jumpto ;
                     }
                 },
 
@@ -445,17 +490,17 @@ impl VM {
                     let jumpto = READ_OPERAND!() as usize;
 
                     if !logicalResult {
-                        frames[fPtr].ip += jumpto ;
+                        ip += jumpto ;
                     }
 
                 },
 
                 OP_JUMP =>{
-                    frames[fPtr].ip += READ_OPERAND!() as usize;
+                    ip += READ_OPERAND!() as usize;
                 },
 
                 OP_LOOP => {
-                    frames[fPtr].ip -= READ_OPERAND!() as usize
+                    ip -= READ_OPERAND!() as usize
                 },
 
                 OP_NOP => {},
@@ -523,7 +568,7 @@ impl VM {
                         array.insert(pop!().clone()) ;
                     }
 
-                    push!(Value::array(array));
+                    push!(Value::array(&mut array as *mut Array));
 
                 }
 
@@ -542,7 +587,7 @@ impl VM {
                 },
 
                 OP_NEWDICT => {
-                    let mut dict = Value::hash(Dict::new());
+                    let mut dict = Value::hash(&mut Dict::new() as *mut Dict);
                     let h = dict.get_dict_mut();
 
                     let arity = pop!().get_integer() as usize;
@@ -559,6 +604,8 @@ impl VM {
 
                     push!(dict) ;
                 },
+
+
                 OP_RETURN => {
                     if fPtr > 0 {
                         let val = pop!();
@@ -571,12 +618,10 @@ impl VM {
                 },
                 OP_CALL => {
 
-                    //let args = READ_OPERAND!() as usize ;
-                    let args = pop!().get_integer() as usize ;
+                    let args = READ_OPERAND!() as usize ;
                     let fnc = get_function!(args) ;
 
                     push_frame!(fnc);
-
 
                 },
 

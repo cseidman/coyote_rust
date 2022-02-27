@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use crate::ast::JumpPop::{NOPOP, POP};
 use crate::ast::Node::*;
 use std::rc::Rc;
-use crate::value::Value::array;
+use crate::value::Value::*;
 
 const PREC_NONE: u8 = 0 ;
 const PREC_ASSIGNMENT: u8 = 1 ; // =
@@ -583,12 +583,12 @@ impl<'a> Compiler<'a> {
     fn integer(&mut self) {
         let token = self.parser.previous() ;
         let label= token.name ;
-        let integer = i64::from_str(label.as_str()).unwrap() ;
+        let intg = i64::from_str(label.as_str()).unwrap() ;
         self.nodePush(
             Node::Value {
                 line: token.line,
                 label,
-                value: Value::integer(integer) ,
+                value: Value::integer(intg) ,
                 dataType: DataType::Integer
             });
     }
@@ -596,12 +596,12 @@ impl<'a> Compiler<'a> {
     fn float(&mut self) {
         let token = self.parser.previous() ;
         let label= token.name ;
-        let float = f64::from_str(label.as_str()).unwrap() ;
+        let flt = f64::from_str(label.as_str()).unwrap() ;
         self.nodePush(
             Node::Value {
                 line: token.line,
                 label,
-                value: Value::float(float) ,
+                value: Value::float(flt) ,
                 dataType: DataType::Float
             });
     }
@@ -1424,10 +1424,30 @@ impl<'a> Compiler<'a> {
                         writeOp!(OP_NIL, line);
                     },
                     DataType::String => {
+                        println!("Value: {}", value.clone()) ;
                         let constant_index = self.makeConstant(value);
 
                         writeOp!(OP_SCONSTANT, line);
                         writeOperand!(constant_index);
+                    },
+                    DataType::Integer => {
+                        let constant_index = self.makeConstant(value.clone());
+
+                        let num = value.get_integer().clone() ;
+                        match num {
+                            1 => {
+                                writeOp!(OP_INT_1, line);
+                            },
+                            2 => {
+                                writeOp!(OP_INT_2, line);
+                            },
+                            _=> {
+                                writeOp!(OP_CONSTANT, line);
+                                writeOperand!(constant_index);
+                            }
+                        }
+
+
                     },
                     _ => {
                         let constant_index = self.makeConstant(value);
@@ -2047,10 +2067,8 @@ impl<'a> Compiler<'a> {
                     self.walkTree(p) ;
                 }
 
-                writeOp!(OP_PUSH, line) ;
-                writeOperand!(loc as u16) ;
                 writeOp!(OP_CALL, line) ;
-
+                writeOperand!(loc as u16) ;
                 f.returnType
 
             },
